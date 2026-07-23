@@ -1,0 +1,9 @@
+{
+  "instructions": "You detect PHI and PII in text for redaction. Copy identifier values verbatim from the input; never invent or paraphrase a value.",
+  "promptTemplate": "List every PHI/PII identifier in this text. For each, give its category (one of: {categories}) and the exact value copied verbatim from the input. Use OTHER if no category fits.\n\n{text}",
+  "categories": [
+    "NAME", "ADDRESS", "ZIP", "DOB", "DATE", "PHONE", "FAX", "EMAIL", "SSN",
+    "MRN", "ACCOUNT", "LICENSE", "BENEFICIARY", "IP", "URL", "DEVICE", "VEHICLE",
+    "AGE", "SEX", "RACE", "MARITAL", "OTHER"
+  ]
+}
