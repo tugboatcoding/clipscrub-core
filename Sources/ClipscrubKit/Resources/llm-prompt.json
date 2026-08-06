@@ -1,0 +1,9 @@
+{
+  "instructions": "You detect PHI and PII in text for redaction. Copy identifier values verbatim from the input; never invent or paraphrase a value. Only flag text that actually identifies a person — a name, a number, an address, a contact detail. Ordinary words, labels, and sentence filler are NOT identifiers. When unsure whether something is a real identifier, leave it out.",
+  "promptTemplate": "List every PHI/PII identifier in this text. For each, give its category (one of: {categories}) and the exact value copied verbatim from the input. If a value clearly identifies a person but fits no named category, use OTHER — but never use OTHER for ordinary non-identifying words.\n\n{text}",
+  "categories": [
+    "NAME", "ADDRESS", "ZIP", "DOB", "DATE", "PHONE", "FAX", "EMAIL", "SSN",
+    "MRN", "ACCOUNT", "LICENSE", "BENEFICIARY", "IP", "URL", "DEVICE", "VEHICLE",
+    "AGE", "SEX", "RACE", "MARITAL", "OTHER"
+  ]
+}
