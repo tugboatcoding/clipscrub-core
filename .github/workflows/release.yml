@@ -1,0 +1,146 @@
+# Cut a GitHub release for the tag that was just pushed.
+#
+# The release carries the `clipscrub` CLI built here, in this run, from this repo at this tag,
+# together with a build provenance attestation for it. That attestation is what answers "does this
+# binary come from this source" without anyone having to take our word for it:
+#
+#     gh attestation verify clipscrub-macos-universal.tar.gz --repo OWNER/REPO
+#
+# The archive is the attested subject rather than the bare binary, because the binary alone does not
+# run — see the staging step below.
+#
+# The ClipScrub app disk image is a different artifact and gets a different answer. The app around
+# this engine is closed source, so the disk image is built and Developer ID signed on a maintainer
+# machine and can never be built here. It carries a published SHA-256 in CHECKSUMS.txt instead,
+# which the release notes repeat as it stood when the tag was cut.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the release and upload its assets
+  id-token: write # sign the attestation
+  attestations: write # record it against this repo
+
+# A tag here is force-pushed on every re-publish, and a forced tag push triggers this again. Without
+# a queue, two runs can interleave their delete and create and leave the tag holding the losing
+# run's assets, or none. Never cancel: a half-finished run is the state being guarded against.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version
+
+      # Checked before anything is built, so a bad CHECKSUMS.txt fails while the release is still
+      # untouched rather than after an attestation has been recorded. Exactly one line, because that
+      # file tells its reader to check "the line below", singular — a second one would contradict the
+      # hash these notes surface with nothing saying which is authoritative.
+      - name: Check the published checksum
+        run: |
+          set -eu
+          # Existence first: `grep -c` on a missing file leaves COUNT empty, and "has  checksum
+          # lines" is not a message anybody can act on.
+          if [ ! -f CHECKSUMS.txt ]; then
+            echo "CHECKSUMS.txt is missing - the release notes read it for the disk image hash" >&2
+            exit 1
+          fi
+          COUNT="$(grep -c '^ClipScrub\.dmg' CHECKSUMS.txt || true)"
+          if [ "$COUNT" != "1" ]; then
+            echo "CHECKSUMS.txt has $COUNT 'ClipScrub.dmg …' lines, expected exactly 1" >&2
+            exit 1
+          fi
+
+      # Never attest a binary built from a red tree. The attestation says "this came from this
+      # source", which is worth nothing if the source was not known good when it was built.
+      - name: Test
+        run: swift test
+
+      - name: Build the CLI
+        run: swift build -c release --arch arm64 --arch x86_64 --product clipscrub
+
+      - name: Stage the release assets
+        run: |
+          set -eu
+          # Ask SwiftPM where it put the binary rather than hardcoding the path. A universal build
+          # lands somewhere different from a single-arch one, and the layout is SwiftPM's to change.
+          BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+          mkdir -p dist
+          # The resource bundle travels WITH the binary. The engine reads its ruleset, name list and
+          # prompt config through `Bundle.module`, which looks beside the executable and nowhere
+          # useful otherwise, so a lone `clipscrub` aborts on first use with "unable to find bundle
+          # named ClipscrubKit_ClipscrubKit". Shipping the pair as one archive is what makes the
+          # attested artifact the thing that actually runs.
+          tar -czf dist/clipscrub-macos-universal.tar.gz \
+            -C "$BIN" clipscrub ClipscrubKit_ClipscrubKit.bundle
+          # Named for what it hashes. `CHECKSUMS.txt` in this repo is the disk image's hash, and two
+          # files called checksums that describe different artifacts is how they get confused.
+          (cd dist && shasum -a 256 clipscrub-macos-universal.tar.gz > clipscrub.sha256)
+          cat dist/clipscrub.sha256
+          # Prove the archive REDACTS before anything vouches for it. Unpacked somewhere else on
+          # purpose, so the build directory cannot supply what the archive forgot to carry.
+          #
+          # The output is asserted, not just the exit code. A run that starts and emits the input
+          # untouched is the fail-open case this tool exists to prevent, and it would look identical
+          # to a pass if all we checked was that the process did not crash.
+          tar -xzf dist/clipscrub-macos-universal.tar.gz -C "$RUNNER_TEMP"
+          REDACTED="$(echo "SSN 123-45-6789" | "$RUNNER_TEMP/clipscrub")"
+          echo "smoke: $REDACTED"
+          case "$REDACTED" in
+            *123-45-6789*) echo "the archived CLI left the identifier in the clear" >&2; exit 1 ;;
+            *'[SSN_1]'*)   ;;
+            *)             echo "the archived CLI produced no recognisable redaction" >&2; exit 1 ;;
+          esac
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/clipscrub-macos-universal.tar.gz
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          TAG="$GITHUB_REF_NAME"
+          {
+            printf '## Verify what you downloaded\n\n'
+            printf 'Two artifacts, two different checks.\n\n'
+            printf '**The `clipscrub` CLI attached below** was built in this run, from this repo, at `%s`. It carries a build provenance attestation, so you can check it against the source yourself:\n\n' "$TAG"
+            printf '```\ngh release download %s --repo %s --pattern clipscrub-macos-universal.tar.gz\ngh attestation verify clipscrub-macos-universal.tar.gz --repo %s\ntar -xzf clipscrub-macos-universal.tar.gz\n```\n\n' "$TAG" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY"
+            printf 'Keep the extracted `ClipscrubKit_ClipscrubKit.bundle` beside the binary. It holds the ruleset and name list, and the tool cannot start without it.\n\n'
+            printf '**The ClipScrub app disk image** from clipscrub.com holds a closed-source app, built and Developer ID signed on a maintainer machine, so it cannot be attested here. It carries a published checksum instead:\n\n'
+            printf '```\nshasum -a 256 ClipScrub.dmg\n```\n\n'
+            # Scoped to the moment this tag was cut, NEVER to "the current download". The bucket
+            # keeps one object and overwrites it, so on an older release this line would otherwise
+            # tell a reader to compare today's file against a superseded hash — and a mismatch reads
+            # as tampering, which is the whole thing this file exists to avoid saying by accident.
+            printf 'The disk image that was live when this tag was cut hashed to:\n\n'
+            printf '```\n'
+            grep -m1 '^ClipScrub\.dmg' CHECKSUMS.txt
+            printf '```\n\n'
+            printf 'If you downloaded ClipScrub since then, that is a newer disk image and a different hash. Check it against the newest release: %s/releases/latest\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          } > notes.md
+          # A publish replaces the mirror wholesale and moves the tag, so the same tag can be
+          # released more than once. Delete and recreate rather than fail, which leaves exactly one
+          # release per tag describing the tree that tag currently points at.
+          #
+          # Deleted only when one is actually there, and NOT with `|| true`. Swallowing the failure
+          # would let auth trouble or a rate limit read as "nothing to delete", and the create that
+          # follows then fails too — leaving the tag pointing at a new tree while its release still
+          # serves the old binary, old attestation and old hash.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes
+          fi
+          gh release create "$TAG" \
+            --title "clipscrub $TAG" \
+            --notes-file notes.md \
+            dist/clipscrub-macos-universal.tar.gz dist/clipscrub.sha256

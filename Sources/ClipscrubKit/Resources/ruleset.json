@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "type": "ssn",
+      "name": "US Social Security Number",
+      "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+      "confidence": 0.92
+    },
+    {
+      "type": "email",
+      "name": "Email address",
+      "pattern": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b",
+      "confidence": 0.9
+    },
+    {
+      "type": "ip",
+      "name": "IPv4 address",
+      "pattern": "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b",
+      "confidence": 0.8
+    },
+    {
+      "type": "mrn",
+      "name": "Medical record number (labelled)",
+      "pattern": "\\bMRN[:#]?\\s?[A-Z0-9]{5,12}\\b",
+      "confidence": 0.85
+    },
+    {
+      "type": "account",
+      "name": "Account number (labelled)",
+      "pattern": "\\b(?:Acct|Account)[:#]?\\s?\\d{6,17}\\b",
+      "confidence": 0.75
+    },
+    {
+      "type": "jwt",
+      "name": "JWT / bearer token",
+      "pattern": "\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b",
+      "confidence": 0.95
+    },
+    {
+      "type": "license",
+      "name": "Driver's license number (labelled)",
+      "pattern": "\\b(?:DLN|DL|Driver'?s?\\s?Licen[sc]e)(?:\\s?(?:no|number|#))?[:#]?\\s?(?=[A-Z0-9-]*\\d)[A-Z0-9-]{5,15}\\b",
+      "confidence": 0.8,
+      "caseInsensitive": true
+    },
+    {
+      "type": "age",
+      "name": "Age (quasi-identifier)",
+      "pattern": "\\b(?:age[:#]?\\s?\\d{1,3}|\\d{1,3}\\s?(?:y/?o|yo|years?\\s?old))\\b",
+      "confidence": 0.6,
+      "caseInsensitive": true
+    },
+    {
+      "type": "sex",
+      "name": "Sex / gender (quasi-identifier)",
+      "pattern": "\\b(?:sex|gender)[:#]?\\s?(?:male|female|nonbinary|non-binary|m|f)\\b",
+      "confidence": 0.7,
+      "caseInsensitive": true
+    },
+    {
+      "type": "race",
+      "name": "Race / ethnicity (quasi-identifier, labelled)",
+      "pattern": "\\b(?:race|ethnicity)[:#]?\\s?(?:White|Black|African[\\s-]?American|Asian|Hispanic|Latin[oax]|Caucasian|Native[\\s-]?American|American[\\s-]?Indian|Alaska[\\s-]?Native|Pacific[\\s-]?Islander|Native[\\s-]?Hawaiian|Middle[\\s-]?Eastern|Multiracial|Biracial)\\b",
+      "confidence": 0.7,
+      "caseInsensitive": true
+    },
+    {
+      "type": "marital",
+      "name": "Marital status (quasi-identifier, labelled)",
+      "pattern": "\\b(?:marital[\\s-]?status|marital)[:#]?\\s?(?:Single|Married|Divorced|Widowed|Widower|Widow|Separated|Partnered|Domestic[\\s-]?Partner|Civil[\\s-]?Union|Engaged)\\b",
+      "confidence": 0.65,
+      "caseInsensitive": true
+    },
+    {
+      "type": "zip",
+      "name": "ZIP / postal code (labelled)",
+      "pattern": "\\b(?:zip\\s?code|postal\\s?code|zip)[:#]?\\s?\\d{5}(?:-\\d{4})?\\b",
+      "confidence": 0.7,
+      "caseInsensitive": true
+    },
+    {
+      "type": "group",
+      "name": "Insurance group number (labelled; the word 'group' alone counts when a digit-bearing value follows)",
+      "pattern": "\\b(?:group\\s?(?:number|no\\.?|num|#)?)[\"']?[:=#]?\\s{0,3}[\"']?(?=[A-Za-z0-9-]*\\d)[A-Za-z0-9-]{2,15}\\b",
+      "confidence": 0.7,
+      "caseInsensitive": true
+    },
+    {
+      "type": "testid",
+      "name": "Test / accession ID (labelled)",
+      "pattern": "\\b(?:test\\s?id|test\\s?(?:number|no\\.?|#)|accession(?:\\s?(?:number|no\\.?|#|id))?)[:#]?\\s?(?=[A-Za-z0-9-]*\\d)[A-Za-z0-9-]{3,20}\\b",
+      "confidence": 0.7,
+      "caseInsensitive": true
+    },
+    {
+      "type": "date",
+      "name": "Month + year (NSDataDetector needs a day, so month-year alone slips through)",
+      "pattern": "\\b(?:Jan(?:uary)?|JAN(?:UARY)?|Feb(?:ruary)?|FEB(?:RUARY)?|Mar(?:ch)?|MAR(?:CH)?|Apr(?:il)?|APR(?:IL)?|May|MAY|Jun(?:e)?|JUN(?:E)?|Jul(?:y)?|JUL(?:Y)?|Aug(?:ust)?|AUG(?:UST)?|Sep(?:t(?:ember)?)?|SEP(?:T(?:EMBER)?)?|Oct(?:ober)?|OCT(?:OBER)?|Nov(?:ember)?|NOV(?:EMBER)?|Dec(?:ember)?|DEC(?:EMBER)?)\\.?,?\\s+(?:18|19|20)\\d{2}\\b",
+      "confidence": 0.8
+    },
+    {
+      "type": "domain",
+      "name": "Bare domain name (opt-in; conservative TLD allowlist, avoids file.txt/version-string false positives)",
+      "pattern": "\\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+(?:com|org|net|edu|gov|io|co|mil|int|uk|de|fr|ca|au|nl|ch|eu|us)\\b",
+      "confidence": 0.75,
+      "caseInsensitive": true
+    },
+    {
+      "type": "beneficiary",
+      "name": "Health plan member / policy ID, next to its label (no payer shares a format, so the label is the only signal)",
+      "pattern": "\\b(?:member|subscriber|policy|beneficiary|insured|enrollee)\\s?(?:id|ident(?:ifier)?|number|no\\.?|#)?[\"']?\\s{0,3}[:=#]?\\s{0,3}[\"']?(?=[A-Za-z0-9-]*[0-9])[A-Za-z0-9][A-Za-z0-9-]{4,24}\\b",
+      "confidence": 0.85,
+      "caseInsensitive": true
+    },
+    {
+      "type": "cpt",
+      "name": "CPT / HCPCS procedure code, next to its label (flag, never removed by default)",
+      "pattern": "\\b(?:cpt|hcpcs|procedure|proc\\.?|service)\\s?(?:code)?[\"']?\\s?[:=#]?\\s?[\"']?\\d{5}\\b",
+      "confidence": 0.95,
+      "caseInsensitive": true,
+      "disposition": "flag"
+    },
+    {
+      "type": "icd10",
+      "name": "ICD-10 diagnosis code, dotted form (flag, never removed by default)",
+      "pattern": "\\b[A-TV-Z][0-9][0-9AB]\\.[0-9A-TV-Z]{1,4}\\b",
+      "confidence": 0.9,
+      "disposition": "flag"
+    },
+    {
+      "type": "icd10",
+      "name": "ICD-10 diagnosis code, undotted, next to its label (flag, never removed by default)",
+      "pattern": "\\b(?:icd(?:-?10)?|dx|diagnosis)\\s?(?:code)?[\"']?\\s?[:=#]?\\s?[\"']?[A-TV-Z][0-9][0-9AB]\\b(?!\\.)",
+      "confidence": 0.9,
+      "caseInsensitive": true,
+      "disposition": "flag"
+    }
+  ]
+}
