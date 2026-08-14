@@ -25,9 +25,8 @@ permissions:
   id-token: write # sign the attestation
   attestations: write # record it against this repo
 
-# A tag here is force-pushed on every re-publish, and a forced tag push triggers this again. Without
-# a queue, two runs can interleave their delete and create and leave the tag holding the losing
-# run's assets, or none. Never cancel: a half-finished run is the state being guarded against.
+# Each pushed tag names one immutable app build. A run must finish before another run for that tag
+# can begin, so the release and its provenance remain paired.
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -129,17 +128,6 @@ jobs:
             printf '```\n\n'
             printf 'If you downloaded ClipScrub since then, that is a newer disk image and a different hash. Check it against the newest release: %s/releases/latest\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           } > notes.md
-          # A publish replaces the mirror wholesale and moves the tag, so the same tag can be
-          # released more than once. Delete and recreate rather than fail, which leaves exactly one
-          # release per tag describing the tree that tag currently points at.
-          #
-          # Deleted only when one is actually there, and NOT with `|| true`. Swallowing the failure
-          # would let auth trouble or a rate limit read as "nothing to delete", and the create that
-          # follows then fails too — leaving the tag pointing at a new tree while its release still
-          # serves the old binary, old attestation and old hash.
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release delete "$TAG" --yes
-          fi
           gh release create "$TAG" \
             --title "clipscrub $TAG" \
             --notes-file notes.md \

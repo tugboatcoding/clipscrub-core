@@ -113,6 +113,16 @@ tar -xzf clipscrub-macos-universal.tar.gz
 
 Naming no tag takes the latest release, so those commands keep working as versions move.
 
+`gh attestation verify` prints nothing on success when stdout is not a terminal. Check the exit
+status, or run it in a terminal, before reading silence as a failure. Checked with gh 2.94.0.
+
+**Attestation starts at v0.3.0.** The release workflow above is the thing that records one, and it
+did not exist at `v0.1.0` or `v0.2.0`. So those two releases carry no attestation to check, and
+`v0.1.0` has no attached build at all. Start at v0.3.0 for anything you intend to verify.
+
+Those two tags are also snapshots from before this repo kept a history, so git will tell you they
+share no ancestor with `main`. That is expected rather than a damaged repo.
+
 The archive holds two things and they belong together. `ClipscrubKit_ClipscrubKit.bundle` carries
 the ruleset and the name list, and the tool reads them from beside its own binary — move the binary
 out on its own and it stops before it redacts anything.
