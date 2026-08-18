@@ -22,14 +22,15 @@
     {
       "type": "mrn",
       "name": "Medical record number (labelled)",
-      "pattern": "\\bMRN[:#]?\\s?[A-Z0-9]{5,12}\\b",
+      "pattern": "\\b(?i:MRN)[:#]?\\s?[A-Z0-9]{5,12}\\b",
       "confidence": 0.85
     },
     {
       "type": "account",
       "name": "Account number (labelled)",
       "pattern": "\\b(?:Acct|Account)[:#]?\\s?\\d{6,17}\\b",
-      "confidence": 0.75
+      "confidence": 0.75,
+      "caseInsensitive": true
     },
     {
       "type": "jwt",

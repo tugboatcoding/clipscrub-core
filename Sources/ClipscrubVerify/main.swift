@@ -106,6 +106,18 @@ func run() async throws {
     check(structuredTypes.contains(.mrn), "detects labelled MRN")
     check(structuredTypes.contains(.other("jwt")), "detects JWT")
 
+    // The mrn/account labels match case-insensitively; the mrn value class stays uppercase-only
+    // (measured regression: a bare top-level caseInsensitive flag also lower-cased [A-Z0-9], so
+    // "MRN Number"/"MRN Column" started matching as if they were record numbers).
+    let lowerLabelled = try await regex.detect(in: .text("mrn: A1234567, acct: 12345678"))
+    check(lowerLabelled.contains { $0.type == .mrn }, "lowercase 'mrn:' label still matches")
+    check(lowerLabelled.contains { $0.type == .account }, "lowercase 'acct:' label still matches")
+    let upperLabelled = try await regex.detect(in: .text("MRN: A1234567, ACCT: 12345678"))
+    check(upperLabelled.contains { $0.type == .mrn }, "uppercase 'MRN:' label still matches")
+    check(upperLabelled.contains { $0.type == .account }, "uppercase 'ACCT:' label still matches")
+    let mrnHeaderNoise = try await regex.detect(in: .text("MRN Number, MRN Column, MRN Values"))
+    check(!mrnHeaderNoise.contains { $0.type == .mrn }, "an MRN table header is not itself a record number")
+
     print("clinical codes are kept, not removed")
     // One string for both the detect and the redact: entity loci are indices INTO this string, and
     // handing the redactor a different one traps on the first out-of-range index.

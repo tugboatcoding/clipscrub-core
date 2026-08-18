@@ -41,10 +41,64 @@ public enum UserRuleStore {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         if loadDetailed(in: directory).corrupt { preserveCorruptFile(in: directory) }
         let url = directory.appendingPathComponent(fileName)
+        try encode(rules).write(to: url, options: .atomic)
+    }
+
+    // MARK: Import and export
+
+    /// The same bytes `save` would write, handed back instead of written to a fixed path — this is
+    /// what backs the Settings ▸ Rules Export button. Uses the same `StoredFile` envelope, so the
+    /// result is itself a valid `custom-rules.json` and can be dropped straight back in via `decode`
+    /// or read from disk by `load`.
+    ///
+    /// Throws rather than swallowing a failure into empty `Data` — this feeds a file write on a
+    /// redaction-adjacent path, and a caller that got an empty file back would report a successful
+    /// export that actually threw away every rule.
+    public static func exportData(_ rules: [UserRule]) throws -> Data {
+        try encode(rules)
+    }
+
+    /// Rules decoded from a `custom-rules.json`-shaped payload, and how many entries the file
+    /// actually held — the gap between the two is what an importer reports as "imported N of M",
+    /// same doctrine as `fileUnreadable` on `load`: a bad entry is dropped, not hidden.
+    ///
+    /// Goes through the same version gate as `loadDetailed`: a file from a newer build throws
+    /// rather than being half-read, because it may use fields this build would drop on the next
+    /// save.
+    ///
+    /// Also refuses a file claiming more than `maxImportedRuleCount` entries. Nothing this app
+    /// writes gets anywhere near that many — this is a floor against a hand-crafted or corrupted
+    /// file turning "decode a shared rules file" into building an enormous in-memory array and then
+    /// compiling every one of its patterns.
+    public static func decodeDetailed(_ data: Data) throws -> (rules: [UserRule], total: Int) {
+        let file = try JSONDecoder().decode(StoredFile.self, from: data)
+        guard file.version <= currentVersion else { throw ImportError.futureVersion(file.version) }
+        guard file.rules.count <= maxImportedRuleCount else { throw ImportError.tooManyRules(file.rules.count) }
+        return (file.rules.compactMap(\.value), file.rules.count)
+    }
+
+    /// Well past anything a person would hand-write or a preset would ship (the largest bundled
+    /// preset here is 8 rules) — see `decodeDetailed`.
+    public static let maxImportedRuleCount = 2_000
+
+    /// Rules decoded from a `custom-rules.json`-shaped payload. Entries that don't decode are
+    /// dropped rather than failing the whole import — see `decodeDetailed` for how many were.
+    public static func decode(_ data: Data) throws -> [UserRule] {
+        try decodeDetailed(data).rules
+    }
+
+    /// Why an import was refused outright, as opposed to landing with some rules dropped.
+    public enum ImportError: Error, Sendable, Equatable {
+        /// The file's format version is newer than this build understands.
+        case futureVersion(Int)
+        /// The file claims more entries than `maxImportedRuleCount` allows.
+        case tooManyRules(Int)
+    }
+
+    private static func encode(_ rules: [UserRule]) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(StoredFile(version: currentVersion, rules: rules.map(FailableRule.init)))
-            .write(to: url, options: .atomic)
+        return try encoder.encode(StoredFile(version: currentVersion, rules: rules.map(FailableRule.init)))
     }
 
     /// Move an unreadable file aside instead of deleting it. The bytes may be recoverable, and they
@@ -79,6 +133,19 @@ public enum UserRuleStore {
         func encode(to encoder: Encoder) throws {
             var container = encoder.singleValueContainer()
             try container.encode(value)
+        }
+    }
+}
+
+extension UserRuleStore.ImportError: LocalizedError {
+    /// Written out because this string is what the person reads in the import failure alert — the
+    /// default for an enum is its own case syntax, which names nothing they can act on.
+    public var errorDescription: String? {
+        switch self {
+        case .futureVersion(let version):
+            "This file was saved by a newer version of ClipScrub (format \(version)) and can't be read here."
+        case .tooManyRules(let count):
+            "This file lists \(count) rules, well past what ClipScrub imports at once (\(UserRuleStore.maxImportedRuleCount)). It's probably not a rules file."
         }
     }
 }

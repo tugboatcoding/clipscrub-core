@@ -20,10 +20,33 @@
   ],
   "es": [
     "jose", "luis", "carlos", "juan", "miguel", "pedro", "javier", "diego", "fernando", "ricardo",
-    "sofia", "isabella", "camila", "valentina", "mia", "lucia", "elena", "carmen", "rosa", "ava"
+    "sofia", "isabella", "camila", "valentina", "mia", "lucia", "elena", "carmen", "rosa", "ava",
+    "alejandro", "francisco", "manuel", "rafael", "sergio", "guadalupe", "gabriela", "andrea",
+    "daniela", "valeria", "ximena", "renata", "alejandra", "monica"
   ],
-  "zh": ["wei", "li", "chen"],
-  "ja": ["hiro", "yuki", "kenji"],
-  "hi": ["aditya", "priya", "arjun", "sanjay"],
-  "ar": ["mohammed", "ahmed", "ali", "fatima", "aisha", "omar", "yusuf", "ibrahim", "hassan", "layla"]
+  "zh": [
+    "wei", "li", "chen",
+    "伟强", "建国", "秀英", "桂英", "玉兰", "春梅", "志强", "明华", "国强", "建华",
+    "淑芬", "秀珍", "秀云", "金凤", "玉梅", "桂芳", "建军", "志明", "淑英", "玉珍",
+    "小明", "晓东", "海燕", "雪梅", "丽娟", "艳丽", "建平", "国庆", "志伟", "学军",
+    "梓涵", "浩然", "雨桐", "诗涵", "欣怡", "一诺", "子墨", "若曦", "思远", "佳琪"
+  ],
+  "ja": [
+    "hiro", "yuki", "kenji",
+    "大翔", "陽翔", "悠真", "颯真", "大和",
+    "悠斗", "陽太", "拓海", "翔太", "健太", "直樹",
+    "さくら", "結愛", "美咲", "心春", "陽菜", "莉子", "芽依", "結衣", "美優",
+    "千尋", "由美", "恵子", "直子", "真由美", "明美", "陽子", "久美子", "智子"
+  ],
+  "hi": [
+    "aditya", "priya", "arjun", "sanjay",
+    "rahul", "amit", "vijay", "ravi", "sunita", "pooja", "neha", "kavita", "anjali", "deepak",
+    "rajesh", "sunil", "meena", "geeta", "shreya"
+  ],
+  "ar": [
+    "mohammed", "ahmed", "ali", "fatima", "aisha", "omar", "yusuf", "ibrahim", "hassan", "layla",
+    "محمد", "أحمد", "علي", "فاطمة", "عائشة", "عمر", "يوسف", "إبراهيم", "حسن", "ليلى",
+    "خالد", "سارة", "مريم", "زينب", "حسين", "عبدالله", "عبدالرحمن", "سلمى",
+    "طارق", "رنا", "دينا", "منى", "وليد", "ريم", "سامي"
+  ]
 }

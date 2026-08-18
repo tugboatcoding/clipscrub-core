@@ -229,6 +229,67 @@ final class VideoRegionTrackTests: XCTestCase {
         XCTAssertTrue(track.samples[1].regions.isEmpty)
     }
 
+    // A run of five missed reads bracketed 1.5s apart, judged against a 1s window. The old rule
+    // measured this frame's distance to each neighbour, so the three frames in the middle sat inside
+    // 1s of both and filled while the two at the ends did not — box on, off, on, off, on, which is
+    // the reported failure. Too far apart to bridge now means the whole run stays open.
+    func testALongRunFillsWholeOrNotAtAll() async {
+        var samples: [VideoRegionTrack.Sample] = [.init(time: 0, regions: [region(0)])]
+        for index in 1...5 { samples.append(.init(time: Double(index) * 0.25, regions: [])) }
+        samples.append(.init(time: 1.5, regions: [region(0)]))
+        let track = await VideoRegionTrack.verified(samples: samples, frameDuration: 1 / 30.0)
+            .fillingMissedReads(within: 1, confirm: { _, _, _, _ in true })
+        for index in 1...5 {
+            XCTAssertTrue(track.samples[index].regions.isEmpty,
+                          "frame \(index) filled while the ends of its own run stayed open")
+        }
+    }
+
+    // The same run at the window the app ships (`VideoRegionSampler.defaultGapWindowSeconds`), which
+    // is what keeps the rule above from costing coverage: a bracket this close bridges every frame.
+    func testARunInsideTheWindowFillsCompletely() async {
+        var samples: [VideoRegionTrack.Sample] = [.init(time: 0, regions: [region(0)])]
+        for index in 1...5 { samples.append(.init(time: Double(index) * 0.25, regions: [])) }
+        samples.append(.init(time: 1.5, regions: [region(0)]))
+        let track = await VideoRegionTrack.verified(samples: samples, frameDuration: 1 / 30.0)
+            .fillingMissedReads(within: 2, confirm: { _, _, _, _ in true })
+        for index in 1...5 {
+            XCTAssertEqual(rectX(track.samples[index].regions), [0],
+                           "frame \(index) of the run came back uncovered")
+        }
+    }
+
+    // The other half of one gap, one answer: too long to bridge means NOTHING fills, not the middle
+    // of it. A run that fills at both ends of itself and not in the middle is the same blink.
+    func testARunTooLongToBridgeIsLeftEntirelyOpen() async {
+        var samples: [VideoRegionTrack.Sample] = [.init(time: 0, regions: [region(0)])]
+        for index in 1...9 { samples.append(.init(time: Double(index) * 0.25, regions: [])) }
+        samples.append(.init(time: 2.5, regions: [region(0)]))
+        let track = await VideoRegionTrack.verified(samples: samples, frameDuration: 1 / 30.0)
+            .fillingMissedReads(within: 2, confirm: { _, _, _, _ in true })
+        for index in 1...9 {
+            XCTAssertTrue(track.samples[index].regions.isEmpty,
+                          "frame \(index) was filled from a bracket too far apart to trust")
+        }
+    }
+
+    // Every frame of a run is its own question to `confirm`. Filling the interior on the strength of
+    // the edges would put a box on a frame whose pixels nobody looked at.
+    func testConfirmIsAskedForEveryFrameOfTheRun() async {
+        actor Asked { var times: [[Double]] = []; func note(_ t: [Double]) { times.append(t) } }
+        let asked = Asked()
+        var samples: [VideoRegionTrack.Sample] = [.init(time: 0, regions: [region(0)])]
+        for index in 1...3 { samples.append(.init(time: Double(index) * 0.25, regions: [])) }
+        samples.append(.init(time: 1, regions: [region(0)]))
+        _ = await VideoRegionTrack.verified(samples: samples, frameDuration: 1 / 30.0)
+            .fillingMissedReads(within: 2) { _, gap, before, after in
+                await asked.note([gap, before, after])
+                return true
+            }
+        let times = await asked.times
+        XCTAssertEqual(times, [[0.25, 0, 1], [0.5, 0, 1], [0.75, 0, 1]])
+    }
+
     private func rectX(_ entities: [DetectedEntity]) -> [CGFloat] {
         entities.compactMap { if case let .region(r) = $0.locus { return r.minX } else { return nil } }
     }

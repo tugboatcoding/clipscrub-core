@@ -16,7 +16,27 @@ public enum DecodedDocument: Sendable {
 /// no third-party deps. DICOM/EDF are handled separately (structured field de-id), not here.
 public enum DocumentDecoder {
     /// Rich-text formats the AppKit text system reads → we extract the plain string and redact that.
-    static let richTextExtensions: Set<String> = ["rtf", "rtfd", "doc", "docx", "html", "htm", "odt", "webarchive"]
+    public static let richTextExtensions: Set<String> = ["rtf", "rtfd", "doc", "docx", "html", "htm", "odt", "webarchive"]
+
+    /// Structured and plain text formats worth reading when nobody named the file.
+    ///
+    /// `decode`'s last branch is more generous than this: it reads any file that turns out to be
+    /// valid UTF-8. That is right for a file somebody picked by hand and wrong for a sweep of a
+    /// folder, which would otherwise open every `.swift` source file and build log it walked past.
+    public static let plainTextExtensions: Set<String> = [
+        "txt", "text", "md", "markdown", "json", "ndjson", "xml", "csv", "tsv", "hl7", "yaml", "yml",
+    ]
+
+    /// Whether a folder sweep should hand this file to `decode`.
+    ///
+    /// Built from the same branches `decode` takes — PDF, the rich text formats, anything the system
+    /// calls an image, and the text formats above. Adding a format means adding it in one place.
+    public static func supports(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        guard !ext.isEmpty else { return false }
+        if ext == "pdf" || richTextExtensions.contains(ext) || plainTextExtensions.contains(ext) { return true }
+        return UTType(filenameExtension: ext)?.conforms(to: .image) ?? false
+    }
 
     public static func decode(_ url: URL) -> DecodedDocument? {
         let ext = url.pathExtension.lowercased()

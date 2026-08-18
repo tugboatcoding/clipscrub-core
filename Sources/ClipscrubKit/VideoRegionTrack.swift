@@ -112,6 +112,10 @@ public struct VideoRegionTrack: Sendable {
     /// the box the same box. Coverage is only ever added: every box the detector found on a frame is
     /// still on that frame.
     ///
+    /// `window` is how long a stretch of missed reads may be bridged, measured between the two reads
+    /// that bracket it. It is not this frame's distance to each of them — that reading closed the
+    /// middle of a long gap and left both ends open.
+    ///
     /// `confirm` receives the box and three times — the gap frame, the read before it, the read after.
     public func fillingMissedReads(
         within window: Double,
@@ -142,6 +146,9 @@ public struct VideoRegionTrack: Sendable {
                         later.regions.contains { sameBox($0, candidate) }
                     }) else { continue }
                     guard let match = after.regions.first(where: { sameBox($0, candidate) }) else { continue }
+                    // One gap, one answer: the window spans the two reads bracketing it, so every
+                    // frame between them fills or none does. Per frame, the ends of a run stayed open.
+                    guard after.time - before.time <= window else { continue }
                     // …and the picture under it has to be the one that was read, not whatever scrolled
                     // into its place.
                     guard await confirm(box, sample.time, before.time, after.time) else { continue }

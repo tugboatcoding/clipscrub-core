@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import os
 import Vision
 
 /// Detects faces as redaction targets (HIPAA full-face photographic images). Emits `.region`
@@ -93,6 +94,89 @@ public struct VisionBarcodeDetector: EntityDetector {
 public struct VisionTextRecognizer: Sendable {
     public init() {}
 
+    /// The languages OCR reads text in, ranked by preference — intersected at runtime with what
+    /// this OS build's Vision revision actually supports (`recognitionLanguages` below).
+    ///
+    /// Covers the scripts `given-names.json` carries native forms for (ja/zh-Hans/ar/es) plus the
+    /// two English locales, so language-independent rules (email, IP, JWT, SSN-format, dotted
+    /// ICD-10, domain) and user rules read non-English screenshots too. English-label-keyed rules
+    /// stay English-only — matching a language does not translate a label.
+    ///
+    /// **What this list does NOT cover, and why:**
+    /// - **zh-Hant (Traditional Chinese) is deliberately absent**, even though this OS supports it
+    ///   — `given-names.json`'s zh entries are Simplified only, and shipping OCR support with no
+    ///   matching gazetteer entries is a silent coverage gap rather than a correctness bug. Add
+    ///   zh-Hant back only alongside Traditional given names.
+    /// - **hi (Hindi) has no native-script entries in `given-names.json`** — only romanized ones
+    ///   — so Devanagari-script names are unreachable by the name gazetteer even though hi-IN OCR
+    ///   is requested. Kept in the preferred list because the language-independent rules still
+    ///   benefit; the gazetteer gap is a follow-up, not blocking.
+    /// - **en-GB is requested but not supported on the OS this was measured against** (macOS 26,
+    ///   Vision only advertises `en-US` for English) — harmless to request; `resolve` drops
+    ///   whatever the OS doesn't support.
+    /// - **Vietnamese is not requested at all.** An earlier draft of this file asked for `vi-VN`,
+    ///   which was already inert — Vision's actual identifier is `vi-VT`, so that request matched
+    ///   nothing and silently read no Vietnamese. Left out here rather than added back as `vi-VT`
+    ///   sight-unseen: no given-names entries and no fixture exist to verify it.
+    /// - **Multi-character CJK names only match as isolated tokens.** `CommonNameDetector`'s word
+    ///   regex uses `\b`, and ICU's `\b` does not segment CJK text into words — a name embedded in
+    ///   running Japanese/Chinese prose (山田大翔さんの記録) reads as one long token and won't hit
+    ///   the gazetteer. A name alone in a table cell or form field (the common screenshot shape)
+    ///   still matches.
+    ///
+    /// Measured on macOS 26 (`VNRecognizeTextRequest.supportedRecognitionLanguages()`, `.accurate`
+    /// level): the OS supports en-US, es-ES, ja-JP, zh-Hans, zh-Hant, ar-SA (not en-GB, not
+    /// hi-IN) — so `recognitionLanguages` below resolves to en-US, es-ES, ja-JP, zh-Hans, ar-SA on
+    /// that OS. An unsupported preferred language is silently absent from the OS's list, not
+    /// thrown — `resolve` never sees an error for that case, only for the probe call itself.
+    public static let preferredRecognitionLanguages = [
+        "en-US", "en-GB", "es-ES", "ja-JP", "zh-Hans", "ar-SA", "hi-IN",
+    ]
+
+    /// Pure: preferred languages intersected with what the OS supports, preferred's order kept.
+    /// Falls back to English-only when the intersection is empty (including "nothing preferred is
+    /// supported"). Split out from `recognitionLanguages` so this decision is unit-testable without
+    /// a live Vision probe.
+    static func resolve(preferred: [String], supported: Set<String>) -> [String] {
+        let matched = preferred.filter { supported.contains($0) }
+        return matched.isEmpty ? ["en-US"] : matched
+    }
+
+    private static let logger = Logger(subsystem: "com.tugboat.clipscrub", category: "VisionTextRecognizer")
+
+    /// The resolved language list actually handed to Vision. A redaction app degrading to
+    /// English-only is a silent product regression, not a cosmetic detail, so both ways this can
+    /// happen are logged rather than swallowed: the support probe throwing, and the probe
+    /// succeeding but returning a set that shares nothing with `preferredRecognitionLanguages`.
+    public static let recognitionLanguages: [String] = {
+        let probe = VNRecognizeTextRequest()
+        probe.recognitionLevel = .accurate
+        let supported: [String]
+        do {
+            supported = try probe.supportedRecognitionLanguages()
+        } catch {
+            logger.fault(
+                "supportedRecognitionLanguages() threw \(String(describing: error), privacy: .public) — OCR degraded to English-only (en-US) for this process"
+            )
+            return ["en-US"]
+        }
+        let supportedSet = Set(supported)
+        let matched = preferredRecognitionLanguages.filter { supportedSet.contains($0) }
+        let dropped = preferredRecognitionLanguages.filter { !supportedSet.contains($0) }
+        if !dropped.isEmpty {
+            logger.notice(
+                "this OS does not support \(dropped.joined(separator: ", "), privacy: .public) from the preferred OCR language list — reading the rest"
+            )
+        }
+        guard !matched.isEmpty else {
+            logger.fault(
+                "none of \(preferredRecognitionLanguages.joined(separator: ", "), privacy: .public) are supported on this OS — OCR degraded to English-only (en-US) for this process"
+            )
+            return ["en-US"]
+        }
+        return matched
+    }()
+
     public func recognize(_ image: CGImage) throws -> [OCRObservation] {
         let tiles = try ImageTiling.strips(of: image)
         guard tiles.count > 1 else { return try recognize(image, tile: nil) }
@@ -111,6 +195,10 @@ public struct VisionTextRecognizer: Sendable {
         // it, so it stays in the picture. Prose reads a little better with it on, but that is not
         // what this pass is for.
         request.usesLanguageCorrection = false
+        request.recognitionLanguages = Self.recognitionLanguages
+        // Deployment target is macOS 15 (Package.swift), well past the macOS 13 / revision-3 floor
+        // this needs, so no @available fallback is required here.
+        request.automaticallyDetectsLanguage = true
         try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
 
         let width = CGFloat(image.width)

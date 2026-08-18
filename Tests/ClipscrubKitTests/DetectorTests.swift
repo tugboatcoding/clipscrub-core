@@ -20,6 +20,23 @@ final class DetectorTests: XCTestCase {
         XCTAssertTrue(found.contains { $0.type == .ssn && $0.value == "123-45-6789" })
     }
 
+    func testMrnAndAccountLabelsMatchRegardlessOfCase() async throws {
+        // Only the LABEL ("mrn"/"acct") matches case-insensitively — the mrn value class stays
+        // uppercase-only. A bare top-level caseInsensitive flag also lower-cased [A-Z0-9], so
+        // "MRN Number"/"MRN Column" started matching as if they were record numbers; scoping the
+        // flag to `(?i:MRN)` in the pattern instead keeps that closed. This is the test that would
+        // have caught both the original miss (lowercase label) and that regression (widened value
+        // class), and it also catches a typo'd JSON key silently reverting the fix.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        for text in ["mrn: A1234567, acct: 12345678", "MRN: A1234567, ACCT: 12345678"] {
+            let found = try await detector.detect(in: .text(text))
+            XCTAssertTrue(found.contains { $0.type == .mrn }, "expected mrn match in '\(text)'")
+            XCTAssertTrue(found.contains { $0.type == .account }, "expected account match in '\(text)'")
+        }
+        let headerNoise = try await detector.detect(in: .text("MRN Number, MRN Column, MRN Values"))
+        XCTAssertFalse(headerNoise.contains { $0.type == .mrn }, "a table header is not a record number")
+    }
+
     func testDataDetectorCatchesPhoneNumber() async throws {
         let found = try await DataDetectorDetector().detect(in: .text("Call me at (415) 555-0132 tomorrow."))
         XCTAssertTrue(found.contains { $0.type == .phone })
