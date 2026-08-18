@@ -407,6 +407,31 @@ func run() async throws {
     }
     check(reportsClean, "entity JSON carries no raw values")
 
+    print("legacy container adoption")
+    let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("clipscrub-verify-container", isDirectory: true)
+    try? FileManager.default.removeItem(at: tempRoot)
+    let legacyDir = tempRoot.appendingPathComponent("legacy", isDirectory: true)
+    let currentDir = tempRoot.appendingPathComponent("current", isDirectory: true)
+    try FileManager.default.createDirectory(at: legacyDir, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: currentDir, withIntermediateDirectories: true)
+    let rulesName = UserRuleStore.fileName
+    try Data("old".utf8).write(to: legacyDir.appendingPathComponent(rulesName))
+    let firstPass = CLIUsageLog.adoptLegacyContainer(from: legacyDir, to: currentDir)
+    let adopted = try? Data(contentsOf: currentDir.appendingPathComponent(rulesName))
+    check(adopted == Data("old".utf8), "rules written before the rename are adopted")
+    check(firstPass.failed.isEmpty && firstPass.alreadyPresent.isEmpty, "a clean pass reports nothing")
+    check(FileManager.default.fileExists(atPath: legacyDir.appendingPathComponent(rulesName).path),
+          "the legacy copy is left in place")
+    try Data("new".utf8).write(to: currentDir.appendingPathComponent(rulesName))
+    let secondPass = CLIUsageLog.adoptLegacyContainer(from: legacyDir, to: currentDir)
+    let preserved = try? Data(contentsOf: currentDir.appendingPathComponent(rulesName))
+    check(preserved == Data("new".utf8), "a second run never overwrites the current container")
+    check(secondPass.alreadyPresent == [rulesName], "and says which file it left in the old folder")
+    check(CLIUsageLog.groupID.hasPrefix("34B4WT759W."), "the group id carries the Team ID prefix")
+    check(CLIUsageLog.directForCLI() != CLIUsageLog.legacyDirectForCLI(), "the two containers are different paths")
+    try? FileManager.default.removeItem(at: tempRoot)
+
     print("pseudonymise mode")
     let fixedKey = SymmetricKey(data: Data(repeating: 0x2b, count: 32))
     let pseudo = Pseudonymiser(key: fixedKey, width: 4)

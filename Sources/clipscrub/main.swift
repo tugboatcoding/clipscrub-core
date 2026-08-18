@@ -186,6 +186,16 @@ func writeOutput(_ data: Data, to url: URL) throws {
     try data.write(to: url, options: .atomic)
 }
 
+// Before anything reads the shared container: an older build wrote to the unprefixed group id.
+let adoption = CLIUsageLog.adoptLegacyContainer()
+let legacyPath = CLIUsageLog.legacyDirectForCLI().path
+for name in adoption.failed {
+    stderr("clipscrub: could not copy '\(name)' out of \(legacyPath) — this run does not see what is in it")
+}
+for name in adoption.alreadyPresent {
+    stderr("clipscrub: '\(name)' also exists in \(legacyPath) — this run used the newer copy. Delete that folder to stop this notice")
+}
+
 do {
     if deid {
         guard positionals.count == 2 else { die("--deid needs <in.dcm|in.edf> <out>") }

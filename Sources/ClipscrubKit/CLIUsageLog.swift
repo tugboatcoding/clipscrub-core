@@ -55,8 +55,11 @@ public struct CLIUsageRecord: Codable, Sendable, Equatable, Identifiable {
 /// callers pass the directory their own sandbox resolves (see `directForCLI` /
 /// `containerForApp`).
 public enum CLIUsageLog {
-    /// Shared container id — the directory name under `~/Library/Group Containers`.
-    public static let groupID = "group.com.tugboat.clipscrub"
+    /// Shared container id, the directory name under `~/Library/Group Containers`. The Team ID
+    /// prefix is required outside the Mac App Store: a Developer ID profile authorizes
+    /// `<TeamID>.*`, so an unprefixed id leaves the entitlement unsatisfied. The app then reads the
+    /// container without a grant, and macOS 26 asks the user to allow access to other apps' data.
+    public static let groupID = "34B4WT759W.group.com.tugboat.clipscrub"
     public static let historyFileName = "cli-history.json"
     public static let configFileName = "cli-config.json"
 
@@ -71,6 +74,54 @@ public enum CLIUsageLog {
     /// unavailable — callers degrade to an empty state.
     public static func containerForApp() -> URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID)
+    }
+
+    /// The directory an unprefixed group id resolves to. Reading it is the CLI's job, because the
+    /// CLI runs outside the sandbox while the app holds no entitlement for that group.
+    public static func legacyDirectForCLI() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Group Containers/group.com.tugboat.clipscrub", isDirectory: true)
+    }
+
+    /// What one adoption pass did, per file. `failed` is a copy that threw. `alreadyPresent` is a
+    /// file this container already had, which is not an error and is not nothing either: the older
+    /// copy stays readable only from the old path, so a caller that reports neither leaves the user
+    /// looking at rules they did not write.
+    public struct ContainerAdoption: Sendable {
+        public let failed: [String]
+        public let alreadyPresent: [String]
+    }
+
+    /// Copy `custom-rules.json`, `cli-history.json` and `cli-config.json` out of the directory an
+    /// unprefixed group id resolves to, so rules written before the id changed are still read. The
+    /// logging opt-in travels with them, because `cli-config.json` carries it.
+    ///
+    /// Copies rather than moves and never overwrites, so a failure leaves the only copy of the
+    /// user's rules where it was. Callers get both lists back — see `ContainerAdoption`.
+    public static func adoptLegacyContainer(
+        from legacy: URL = legacyDirectForCLI(),
+        to current: URL = directForCLI()
+    ) -> ContainerAdoption {
+        guard legacy != current else { return ContainerAdoption(failed: [], alreadyPresent: []) }
+        let manager = FileManager.default
+        var failed: [String] = []
+        var alreadyPresent: [String] = []
+        for name in [UserRuleStore.fileName, historyFileName, configFileName] {
+            let source = legacy.appendingPathComponent(name)
+            let destination = current.appendingPathComponent(name)
+            guard manager.fileExists(atPath: source.path) else { continue }
+            guard !manager.fileExists(atPath: destination.path) else {
+                alreadyPresent.append(name)
+                continue
+            }
+            do {
+                try manager.createDirectory(at: current, withIntermediateDirectories: true)
+                try manager.copyItem(at: source, to: destination)
+            } catch {
+                failed.append(name)
+            }
+        }
+        return ContainerAdoption(failed: failed, alreadyPresent: alreadyPresent)
     }
 
     // MARK: Config
