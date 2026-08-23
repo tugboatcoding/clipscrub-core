@@ -82,8 +82,11 @@ tokens (`[NAME_1]`) or stable keyed pseudonyms.
 ## Document and medical formats
 
 - **Documents** — `.docx`, `.rtf`, `.html`, PDF and plain text. Rich text keeps its
-  formatting. PDFs are flattened to a raster, so a box over the text does not leave
-  the text still selectable underneath.
+  formatting. Every PDF page is flattened to a raster, so a box over the text does not
+  leave the text still selectable underneath. A PDF that arrived with a text layer keeps
+  one: the words no box touched are written back invisibly where they were, so the file
+  stays searchable and the values that were removed are not in it. A scanned PDF has no
+  text to keep. Pass `--flatten-only` for pixels and nothing else.
 - **Medical files** — `--deid` de-identifies the header fields that carry PHI in
   **DICOM** and **EDF**, where a content scan can never reach it. v1 is honest about
   its limits: DICOM burned-in pixel PHI and UIDs are not modified.

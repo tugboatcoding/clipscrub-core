@@ -25,6 +25,7 @@ FLAGS
   --doc             re-export a redacted rich-text doc in its ORIGINAL format (keeps formatting)
   --deid            de-identify a DICOM (.dcm) or EDF (.edf) file's PHI header fields
   --mode <m>        redact (default) | pseudonymise (stable keyed tokens); text and docs only
+  --flatten-only    PDF out: pixels only, no searchable text (see below)
   --no-llm          skip the on-device Apple Intelligence tier (deterministic only); text and docs
   --no-user-rules   ignore saved custom patterns
   --report          print a JSON summary (per-type counts, no raw values) to stderr,
@@ -43,6 +44,12 @@ byte-stable, reproducible output in scripts. When the model is unavailable (olde
 macOS, Apple Intelligence off) the tier is skipped automatically. Images and PDFs
 run the deterministic layers only. Output goes to stdout only; nothing leaves your
 machine.
+
+A PDF that arrives with a text layer keeps one. Every page is still rasterised, so
+nothing sits under a redaction box, and the words that were not removed are written
+back over their own pixels. The output stays searchable and the removed values are
+gone from the file. A scanned PDF has no text to keep and comes back as pixels.
+--flatten-only turns this off and emits pixels for every page.
 
 ClipScrub is a tool, not a compliance guarantee. Review output before sharing.
 """
@@ -135,6 +142,7 @@ var doc = false
 var report = false
 var noLLM = false
 var noUserRules = false
+var flattenOnly = false
 var mode: OutputMode = .redact
 var positionals: [String] = []
 
@@ -149,6 +157,7 @@ while index < arguments.count {
     case "--doc": doc = true
     case "--no-llm": noLLM = true
     case "--no-user-rules": noUserRules = true
+    case "--flatten-only": flattenOnly = true
     case "--report": report = true
     case "--mode":
         index += 1
@@ -216,27 +225,35 @@ do {
         logCLIUsage(command: .deid, mode: mode, entities: [])
     } else if isImage {
         guard positionals.count == 2 else { die("--image needs <in.png|in.pdf> <out.png|out.pdf>") }
-        // The image path has no pseudonymiser — a box painted over the text leaves nowhere to put
-        // the token. Accepting the flag and plain-redacting anyway reported a mode it had not run.
+        // Pseudonyms on this path would need a token per box in the image AND in the text layer, and
+        // only the GUI builds that map today. Plain-redacting while accepting the flag would report a
+        // mode it had not run.
         if mode != .redact { die("--mode pseudonymise works on text and documents, not images") }
         let inputURL = URL(fileURLWithPath: positionals[0])
         let outputURL = checkedOutput(positionals[0], positionals[1])
 
         // A PNG/JPG/… is one page; a PDF is many. DocumentDecoder handles both.
-        let pages: [CGImage]
+        let decodedPages: [DecodedPage]
         switch DocumentDecoder.decode(inputURL) {
-        case .images(let decoded): pages = decoded.map(\.cgImage)
+        case .pages(let decoded): decodedPages = decoded
         case .text: die("that's a text document — redact it as text (omit --image)")
         case nil: die("could not read an image or PDF at \(positionals[0])")
         }
 
         let pipeline = try ImageRedactionPipeline.makeDefault(userRules: loadUserRules(skip: noUserRules))
-        var redactedPages: [CGImage] = []
+        var redactedPages: [PDFAssembler.Page] = []
         var allRegions: [DetectedEntity] = []
-        for page in pages {
-            let (redacted, regions) = try await pipeline.redact(page)
+        for page in decodedPages {
+            let source = page.image.cgImage
+            let (redacted, regions) = try await pipeline.redact(source)
             guard let output = redacted else { die("redaction failed") } // fail closed
-            redactedPages.append(output)
+            redactedPages.append(PDFAssembler.Page.make(
+                flattened: output,
+                rasterSize: CGSize(width: source.width, height: source.height),
+                pageSize: page.pageSize,
+                text: flattenOnly ? nil : page.text,
+                regions: regions
+            ))
             allRegions += regions
         }
 
@@ -248,7 +265,7 @@ do {
         } else if redactedPages.count > 1 {
             die("\(positionals[0]) has \(redactedPages.count) pages — give the output a .pdf name to keep them all")
         } else {
-            guard let png = ImageRedactor().encodePNG(redactedPages[0]) else { die("redaction failed") }
+            guard let png = ImageRedactor().encodePNG(redactedPages[0].image) else { die("redaction failed") }
             try writeOutput(png, to: outputURL)
         }
         // Split the same way the text path does: the JSON counts what was covered, the extra line
@@ -284,7 +301,7 @@ do {
             guard positionals.count == 1 else { die("too many arguments (one input file, or pipe via stdin)") }
             switch DocumentDecoder.decode(URL(fileURLWithPath: path)) {
             case .text(let decoded): text = decoded
-            case .images: die("that's an image/PDF — use --image")
+            case .pages: die("that's an image/PDF — use --image")
             case nil: die("could not read \(path)")
             }
         } else {

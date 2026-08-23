@@ -4,6 +4,7 @@ import CoreGraphics
 import CryptoKit
 import Foundation
 import ImageIO
+import PDFKit
 
 // A dependency-free smoke harness mirroring the XCTest suite, so the core can be
 // verified headlessly under Command Line Tools (no XCTest/Testing module needed).
@@ -274,7 +275,7 @@ func run() async throws {
                                                  makeSolidImage(width: 200, height: 300, gray: 1)]) {
         let pdfURL = tmp.appendingPathComponent("cs_fixture.pdf")
         try pdfData.write(to: pdfURL)
-        if case let .images(pages)? = DocumentDecoder.decode(pdfURL) {
+        if case let .pages(pages)? = DocumentDecoder.decode(pdfURL) {
             check(pages.count == 2, "decodes a 2-page PDF into 2 page images")
         } else { check(false, "decodes a 2-page PDF into 2 page images") }
         try? FileManager.default.removeItem(at: pdfURL)
@@ -287,11 +288,27 @@ func run() async throws {
                                                 makeSolidImage(width: 180, height: 260, gray: 1)]) {
         let docURL = tmp.appendingPathComponent("cs_doc_fixture.pdf")
         try docPDF.write(to: docURL)
-        if case let .images(pages)? = DocumentDecoder.decode(docURL) {
+        if case let .pages(pages)? = DocumentDecoder.decode(docURL) {
             check(pages.count == 3, "assembles a 3-page document PDF (all pages round-trip)")
         } else { check(false, "assembles a 3-page document PDF (all pages round-trip)") }
         try? FileManager.default.removeItem(at: docURL)
     } else { check(false, "assembles a 3-page document PDF (all pages round-trip)") }
+
+    // A page is emitted at the size it was, not at its pixel count. Rendering at 2x and writing the
+    // pixel count as points printed a letter page at twice its size, and the checks above cannot see
+    // it — they read the page COUNT, and the convenience overload still defaults size to the pixels.
+    let letter = CGSize(width: 612, height: 792)
+    let atTwice = makeSolidImage(width: 1224, height: 1584, gray: 1)
+    if let sizedPDF = PDFAssembler.pdfData(from: [PDFAssembler.Page(image: atTwice, size: letter)]) {
+        let sizedURL = tmp.appendingPathComponent("cs_sized_fixture.pdf")
+        try sizedPDF.write(to: sizedURL)
+        if let page = PDFDocument(url: sizedURL)?.page(at: 0) {
+            let box = page.bounds(for: .mediaBox)
+            check(abs(box.width - letter.width) < 1 && abs(box.height - letter.height) < 1,
+                  "a 2x render is emitted at the page's own size, not its pixel count")
+        } else { check(false, "a 2x render is emitted at the page's own size, not its pixel count") }
+        try? FileManager.default.removeItem(at: sizedURL)
+    } else { check(false, "a 2x render is emitted at the page's own size, not its pixel count") }
 
     print("attributed (formatted) redaction")
     let bold = NSFont.boldSystemFont(ofSize: 12)
@@ -428,7 +445,9 @@ func run() async throws {
     let preserved = try? Data(contentsOf: currentDir.appendingPathComponent(rulesName))
     check(preserved == Data("new".utf8), "a second run never overwrites the current container")
     check(secondPass.alreadyPresent == [rulesName], "and says which file it left in the old folder")
-    check(CLIUsageLog.groupID.hasPrefix("34B4WT759W."), "the group id carries the Team ID prefix")
+    try Data("old".utf8).write(to: currentDir.appendingPathComponent(rulesName))
+    let matching = CLIUsageLog.adoptLegacyContainer(from: legacyDir, to: currentDir)
+    check(matching.alreadyPresent.isEmpty, "two copies that match are not worth a word")
     check(CLIUsageLog.directForCLI() != CLIUsageLog.legacyDirectForCLI(), "the two containers are different paths")
     try? FileManager.default.removeItem(at: tempRoot)
 
@@ -457,16 +476,20 @@ func run() async throws {
         let avg = averageRGBA(decoded)
         check(avg.0 < 8 && avg.1 < 8 && avg.2 < 8, "redacted pixels opaque — original (white) discarded")
         let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
-        // The re-encoded PNG carries no location/camera/timestamp metadata. ImageIO only
-        // synthesizes structural pixel dimensions inside {Exif}, which identify nothing.
-        let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
-        let sensitiveExif = exif.keys.contains {
-            $0 != kCGImagePropertyExifPixelXDimension && $0 != kCGImagePropertyExifPixelYDimension
-        }
-        check(props[kCGImagePropertyGPSDictionary] == nil
-              && props[kCGImagePropertyTIFFDictionary] == nil
-              && !sensitiveExif,
-              "export carries no GPS/camera/timestamp metadata (only pixel dimensions)")
+        // No allowlist. This used to excuse an {Exif} dictionary holding only pixel dimensions, on
+        // the reading that ImageIO synthesized them — it does not, it writes a real 56-byte `eXIf`
+        // chunk, and `encodePNG` now removes it. The values were harmless; the exemption was not,
+        // because it made "no metadata" unstatable and hid the chunk from this check.
+        check(props[kCGImagePropertyExifDictionary] == nil
+              && props[kCGImagePropertyGPSDictionary] == nil
+              && props[kCGImagePropertyTIFFDictionary] == nil,
+              "export carries no metadata dictionary — no Exif, GPS or TIFF")
+
+        // And the bytes, not only ImageIO's reading of them. A chunk ImageIO does not surface as
+        // one of the three dictionaries above is invisible to that check and still ships, so the
+        // chunk list is what this asserts: exactly the types the encoder is allowed to keep.
+        check(ImageRedactor.chunkTypes(of: png).allSatisfy(ImageRedactor.renderingChunkTypes.contains),
+              "export carries only rendering chunks — no metadata chunk of any type")
     } else {
         check(false, "image redaction produced a decodable PNG")
     }

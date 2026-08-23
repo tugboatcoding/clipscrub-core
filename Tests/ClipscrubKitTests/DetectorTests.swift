@@ -451,6 +451,169 @@ final class DetectorTests: XCTestCase {
         XCTAssertTrue(result.flagged.isEmpty)
     }
 
+    func testLabelledEncounterIdIsFound() async throws {
+        // A real miss, reported from an encounter note: `ED-` then an eight-digit date then a
+        // five-digit sequence, with `Encounter #:` written immediately to its left. Nothing in the
+        // ruleset reached it — `member` and friends are the wrong labels, `Acct` wants a bare run of
+        // digits, and `accession` is a different word. The label is the whole signal, same as it is
+        // for a member ID: no two hospital systems number a visit the same way.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        for text in ["Encounter #: ED-2026081412345",
+                     "Encounter number ED-2026081412345",
+                     "Visit ID: V-88214309",
+                     "CSN 402118853",
+                     "\"encounterId\": \"ED-2026081412345\"",
+                     "Admission no. A0099421",
+                     "Episode ID: EP-77120"] {
+            let found = try await detector.detect(in: .text(text))
+            XCTAssertTrue(found.contains { $0.type == .other("encounter") },
+                          "expected an encounter ID in '\(text)'")
+        }
+    }
+
+    func testEncounterRuleCoversTheWholeIdentifierNotJustItsLabel() async throws {
+        // A rule that matched `Encounter #:` and stopped would read as a hit and leave the number
+        // in the picture — the failure this whole item is about.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        let found = try await detector.detect(in: .text("Encounter #: ED-2026081412345 seen in the ED."))
+        let hit = try XCTUnwrap(found.first { $0.type == .other("encounter") })
+        XCTAssertTrue(hit.value.hasSuffix("ED-2026081412345"),
+                      "the span must reach the end of the identifier, got '\(hit.value)'")
+        XCTAssertEqual(hit.disposition, .redact)
+    }
+
+    func testEncounterRuleLeavesOrdinaryProseAlone() async throws {
+        // `encounter` is an ordinary clinical word, so the rule only fires when a value carrying a
+        // digit follows the label. Without that bound every note that says "the encounter was
+        // brief" loses its next two words.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        for text in ["The encounter was brief and uneventful.",
+                     "Visit summary dictated the same afternoon.",
+                     "Admission notes follow.",
+                     "Episode of care completed."] {
+            let found = try await detector.detect(in: .text(text))
+            XCTAssertFalse(found.contains { $0.type == .other("encounter") },
+                           "unexpected encounter match in '\(text)'")
+        }
+    }
+
+    func testAnAdmissionDateStaysADateAndDoesNotBecomeAnEncounterId() async throws {
+        // `Admission 2026-08-14` fits the encounter shape — a label, then a value carrying digits —
+        // and without the date guard in the pattern the encounter span WON the overlap, because it
+        // is longer than the date span and `resolveOverlaps` keeps the span that contains the other
+        // (DetectionEngine.swift:343). The reader then sees [ENCOUNTER_1] where a date belongs, and
+        // anyone who turns Government & account IDs off while keeping Dates on loses the date's
+        // cover entirely. Measured before the guard: `Visit 2026-08-14` came back
+        // `ENCOUNTER:Visit 2026-08-14@0.85` with no DATE at all.
+        let engine = DetectionEngine(detectors: [
+            DataDetectorDetector(),
+            try RegexRulesetDetector(ruleset: Ruleset.bundled()),
+        ])
+        for text in ["Visit 2026-08-14", "Admission 2026-08-14", "Episode 2026-08-14"] {
+            let found = try await engine.detect(in: .text(text))
+            XCTAssertFalse(found.contains { $0.type == .other("encounter") },
+                           "a date after the label is a date, not an encounter ID — '\(text)'")
+            XCTAssertTrue(found.contains { $0.type == .date && $0.value == "2026-08-14" },
+                          "the date must still be found in '\(text)', got \(found.map(\.value))")
+        }
+    }
+
+    func testEncounterColumnsAreReadFromACsvHeaderAndAJsonKey() async throws {
+        // Same argument as `member_id`: the column says what the value is, whatever it looks like.
+        let csv = """
+        encounter_id,visit_number,dob,billed
+        ED-2026081412345,V-88214309,1958-04-17,210.00
+        ED-2026081499001,V-88214310,1991-11-03,165.00
+        """
+        let fromCSV = try await DelimitedFieldDetector().detect(in: .text(csv))
+        XCTAssertEqual(
+            Set(fromCSV.filter { $0.type == .other("encounter") }.map(\.value)),
+            ["ED-2026081412345", "V-88214309", "ED-2026081499001", "V-88214310"]
+        )
+
+        let json = #"{"encounterId": "ED-2026081412345", "csn": "402118853", "id": "row-7"}"#
+        let fromJSON = try await JSONFieldDetector().detect(in: .text(json))
+        XCTAssertEqual(
+            Set(fromJSON.filter { $0.type == .other("encounter") }.map(\.value)),
+            ["ED-2026081412345", "402118853"]
+        )
+        XCTAssertFalse(fromJSON.contains { $0.value == "row-7" })
+    }
+
+    func testANameInACellIsFoundWhereTheNameTaggerCannotSee() async throws {
+        // The tagger reads the grammar around a word to decide the word is a person, and a bare cell
+        // has none. So a name it does not already know stayed in the clear one line below the same
+        // name in a sentence. `Nguyễn Thị Hương` is the measured case from the corpus.
+        let csv = """
+        client_name,dob,mrn,phone,notes
+        Sarah Mitchell,12-Jul-1988,MRN 88-40021,(415) 555-0198,F41.1
+        Nguyễn Thị Hương,2026-03-04,A0938271,090-1234-5678,PHQ-9
+        """
+        let found = try await DelimitedFieldDetector().detect(in: .text(csv))
+        XCTAssertEqual(
+            Set(found.filter { $0.type == .name }.map(\.value)),
+            ["Sarah Mitchell", "Nguyễn Thị Hương"],
+        )
+        // A Japanese mobile number, invisible to a detector built for one region's phone shapes.
+        XCTAssertTrue(found.contains { $0.type == .phone && $0.value == "090-1234-5678" })
+    }
+
+    func testSplitNameColumnsAndTheFhirSpellingBothReadAsNames() async throws {
+        // Two spellings of one idea. A CSV splits the name across columns, a clinical JSON export
+        // uses FHIR's `family` and `given`, and `given` arrives as an ARRAY — so this also proves
+        // the array walk in `JSONFieldDetector` carries names and not only record numbers.
+        let csv = """
+        first_name,last_name,guarantor_name,billed
+        Margaret,Ellison,Alan Voss,210.00
+        """
+        let fromCSV = try await DelimitedFieldDetector().detect(in: .text(csv))
+        XCTAssertEqual(
+            Set(fromCSV.filter { $0.type == .name }.map(\.value)),
+            ["Margaret", "Ellison", "Alan Voss"],
+        )
+
+        let json = #"{"family": "Ellison", "given": ["Margaret", "A"], "name": "Consent form"}"#
+        let fromJSON = try await JSONFieldDetector().detect(in: .text(json))
+        XCTAssertEqual(Set(fromJSON.filter { $0.type == .name }.map(\.value)), ["Ellison", "Margaret", "A"])
+        // A bare `name` key is as likely to be a product or a file, so it stays off the list for the
+        // same reason a bare `id` does. A later completeness edit that adds it trips this line.
+        XCTAssertFalse(fromJSON.contains { $0.value == "Consent form" })
+    }
+
+    func testAServiceDateIsRedactedAndAProviderColumnIsLeftAlone() async throws {
+        // Safe Harbor C removes every date tied to the individual, not only the birth date — a date
+        // of service beside a postcode re-identifies on its own. The provider column is the opposite
+        // case: a clinician identifier is a separate decision and this table has no opinion on it,
+        // so it must stay unmapped rather than drift in as a completeness fix.
+        let csv = """
+        claim_id,dob,dos,discharge_date,provider,npi
+        CLM-1,1958-04-17,2026-03-02,2026-03-09,Dana R. Whitfield LCSW,1487602233
+        """
+        let found = try await DelimitedFieldDetector().detect(in: .text(csv))
+        XCTAssertEqual(
+            Set(found.filter { $0.type == .date }.map(\.value)),
+            ["2026-03-02", "2026-03-09"],
+        )
+        XCTAssertTrue(found.contains { $0.type == .dateOfBirth && $0.value == "1958-04-17" })
+        XCTAssertFalse(found.contains { $0.value.contains("Whitfield") || $0.value == "1487602233" })
+    }
+
+    func testABareColumnOfNamesIsStillReadLineByLine() async throws {
+        // The carrier-sentence pass, which now skips a line that cannot hold a two-word name and
+        // reuses one tagger across the rest. Both are speed changes, and this is what they must not
+        // cost: a roster with no sentence around it, where the name model on its own finds nothing.
+        let roster = """
+        Dee Okonkwo
+        Tobias Renner
+        Priya Raghavan
+        """
+        let found = try await NameEntityDetector().detect(in: .text(roster))
+        let names = Set(found.filter { $0.type == .name }.map(\.value))
+        for expected in ["Dee Okonkwo", "Tobias Renner", "Priya Raghavan"] {
+            XCTAssertTrue(names.contains(expected), "lost '\(expected)' from a bare column; got \(names)")
+        }
+    }
+
     func testEmptyInputYieldsNoDetections() async throws {
         let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
         let empty = DetectionInput.text("")

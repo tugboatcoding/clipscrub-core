@@ -170,15 +170,93 @@ public struct ImageRedactor: Sendable {
         return encodePNG(flat)
     }
 
-    /// Encode a CGImage as PNG with all metadata stripped (no EXIF/GPS/TIFF).
+    /// Encode a CGImage as PNG carrying no metadata at all, or nil.
+    ///
+    /// Passing no properties is not enough. ImageIO writes an `eXIf` chunk regardless — measured at
+    /// 56 bytes holding PixelXDimension and PixelYDimension — and neither a null nor an empty Exif
+    /// dictionary suppresses it: the first fails the finalize outright, the second is ignored. Those
+    /// two values identify nobody, so the chunk is harmless in itself. It is removed anyway, because
+    /// "no metadata" is what a de-identification tool should be able to say without a footnote, and
+    /// a metadata block that exists is one a later encoder change can fill.
+    ///
+    /// A file the chunk walk cannot parse returns nil rather than the unstripped bytes. Handing back
+    /// an export whose contents are not known is the one outcome this function exists to prevent.
     public func encodePNG(_ image: CGImage) -> Data? {
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             data, UTType.png.identifier as CFString, 1, nil
         ) else { return nil }
-        // Passing no properties writes no EXIF/GPS/TIFF metadata dictionaries.
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return nil }
-        return data as Data
+        return Self.withoutMetadataChunks(data as Data)
+    }
+
+    /// Keep the chunks a PNG needs to render, and drop everything else.
+    ///
+    /// An allowlist, not a list of metadata carriers to remove. A denylist is only as good as the
+    /// author's memory of the format: `eXIf` is what ImageIO writes here, but `tIME` and the text
+    /// chunks would ride out just as quietly, and the next chunk type nobody thought of rides out
+    /// too. Naming what may stay makes the unknown case default to removal.
+    ///
+    /// `iCCP`, `sRGB`, `gAMA`, `cHRM`, `sBIT` and `tRNS` are here because dropping them changes how
+    /// the image renders — colour is not metadata. `pHYs` and `tIME` are not: a print size and a
+    /// timestamp are facts about the original, and this file is meant to carry none.
+    ///
+    /// Returns nil when the walk cannot reach a well-formed `IEND`. That is the same fail-closed
+    /// rule the CLI states: on an error, write nothing rather than hand back something whose
+    /// contents are not known. The input here is ImageIO's own output moments earlier, so an
+    /// unparseable one means something is wrong that a caller should not paper over.
+    public static let renderingChunkTypes: Set<String> = [
+        "IHDR", "PLTE", "IDAT", "IEND", "iCCP", "sRGB", "gAMA", "cHRM", "sBIT", "tRNS",
+    ]
+
+    static func withoutMetadataChunks(_ png: Data) -> Data? {
+        let signature = 8
+        let keep = renderingChunkTypes
+        guard png.count > signature else { return nil }
+        let bytes = [UInt8](png)
+
+        var kept = Data(bytes[0..<signature])
+        var cursor = signature
+        while cursor + 8 <= bytes.count {
+            let length = bytes[cursor..<cursor + 4].reduce(0) { Int($0) << 8 | Int($1) }
+            guard let type = String(bytes: bytes[cursor + 4..<cursor + 8], encoding: .ascii)
+            else { return nil }
+            // 4 length + 4 type + payload + 4 CRC. `length` comes from the file, so the add is
+            // checked before it is used as an index.
+            let (next, overflowed) = cursor.addingReportingOverflow(12 + length)
+            guard !overflowed, next <= bytes.count else { return nil }
+            if keep.contains(type) { kept.append(contentsOf: bytes[cursor..<next]) }
+            cursor = next
+            // IEND ends the image, and it carries no payload. Bytes after it are not part of the
+            // PNG — dropping them quietly would hand back a file the caller never described, so an
+            // export that has any is refused like every other thing the walk cannot account for.
+            if type == "IEND" { return (length == 0 && next == bytes.count) ? kept : nil }
+        }
+        return nil
+    }
+
+    /// The chunk types a PNG carries, in file order. Empty when the walk cannot parse the file.
+    ///
+    /// Shared with the verify harness and the tests on purpose: a second walker written beside this
+    /// one drifts, and a checker with weaker bounds than the thing it checks reports what it wishes
+    /// were true.
+    public static func chunkTypes(of png: Data) -> [String] {
+        let signature = 8
+        guard png.count > signature else { return [] }
+        let bytes = [UInt8](png)
+        var types: [String] = []
+        var cursor = signature
+        while cursor + 8 <= bytes.count {
+            let length = bytes[cursor..<cursor + 4].reduce(0) { Int($0) << 8 | Int($1) }
+            guard let type = String(bytes: bytes[cursor + 4..<cursor + 8], encoding: .ascii)
+            else { return types }
+            let (next, overflowed) = cursor.addingReportingOverflow(12 + length)
+            guard !overflowed, next <= bytes.count else { return types }
+            types.append(type)
+            cursor = next
+            if type == "IEND" { break }
+        }
+        return types
     }
 }

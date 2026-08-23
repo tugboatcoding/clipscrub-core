@@ -15,4 +15,4 @@
 # at this commit, which is not necessarily the one you have. A release repeats the line as it stood
 # when that release was cut. clipscrub.com always shows the current one.
 
-ClipScrub.dmg  version=0.4.0  build=12  sha256=2bae0be3be31d0e416b4dba610a965cedd1b639ceec9cf112bffd7b2a8c57767
+ClipScrub.dmg  version=0.5.0  build=13  sha256=bccd60f79512e905a53e842cf47dd153422a1d10e8b1c5a78f76c7b7f8de6d49

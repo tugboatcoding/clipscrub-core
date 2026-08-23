@@ -57,16 +57,106 @@ public struct DelimitedFieldDetector: EntityDetector {
         "medicalrecordno": (.mrn, .redact),
         "patientid": (.mrn, .redact),
         "chartnumber": (.mrn, .redact),
+        // One visit, not one patient. A hospital numbers an encounter its own way — Epic calls it a
+        // CSN, the next system calls it a visit number — so this reads as `.other("encounter")` and
+        // lands under Government & account IDs through `RedactionCategory.otherSubtypeCategories`.
+        "encounterid": (.other("encounter"), .redact),
+        "encounternumber": (.other("encounter"), .redact),
+        "encounterno": (.other("encounter"), .redact),
+        "visitid": (.other("encounter"), .redact),
+        "visitnumber": (.other("encounter"), .redact),
+        "visitno": (.other("encounter"), .redact),
+        "csn": (.other("encounter"), .redact),
+        "contactserialnumber": (.other("encounter"), .redact),
+        "admissionid": (.other("encounter"), .redact),
+        "admissionnumber": (.other("encounter"), .redact),
+        "episodeid": (.other("encounter"), .redact),
+        "episodenumber": (.other("encounter"), .redact),
+        // The ruleset already reads an `accession` label in prose; the column form was missing.
+        "accessionid": (.other("testid"), .redact),
+        "accessionnumber": (.other("testid"), .redact),
         "ssn": (.ssn, .redact),
         "socialsecuritynumber": (.ssn, .redact),
         "dob": (.dateOfBirth, .redact),
         "dateofbirth": (.dateOfBirth, .redact),
         "birthdate": (.dateOfBirth, .redact),
+        // The OTHER clinical dates. Safe Harbor C removes every date tied to the individual, not
+        // just the birth date, and a service date plus a postcode re-identifies on its own. A bare
+        // `date` is not here for the same reason a bare `name` is not: a date column in a sales
+        // export is a shipping date and belongs to nobody.
+        "dos": (.date, .redact),
+        "dateofservice": (.date, .redact),
+        "servicedate": (.date, .redact),
+        "admitdate": (.date, .redact),
+        "admissiondate": (.date, .redact),
+        "dateofadmission": (.date, .redact),
+        "dischargedate": (.date, .redact),
+        "dateofdischarge": (.date, .redact),
+        "visitdate": (.date, .redact),
+        "encounterdate": (.date, .redact),
+        "appointmentdate": (.date, .redact),
+        "apptdate": (.date, .redact),
+        "proceduredate": (.date, .redact),
+        "collectiondate": (.date, .redact),
+        "deathdate": (.date, .redact),
+        "dateofdeath": (.date, .redact),
         "membername": (.name, .redact),
         "patientname": (.name, .redact),
         "subscribername": (.name, .redact),
         "beneficiaryname": (.name, .redact),
         "insuredname": (.name, .redact),
+        // A cell is where the name tagger goes quiet. It reads the grammar around a word to decide
+        // the word is a person, and a bare cell has none — so `Nguyễn Thị Hương` under
+        // `client_name` came through in the clear while the same name in a sentence did not. The
+        // header is the signal a cell still has.
+        //
+        // Split-name exports get both halves, and the FHIR spelling gets its own pair, because
+        // `{"family": "Ellison", "given": ["Margaret"]}` is the shape a clinical JSON export uses
+        // and `JSONFieldDetector` reads this same list.
+        "clientname": (.name, .redact),
+        "firstname": (.name, .redact),
+        "lastname": (.name, .redact),
+        "middlename": (.name, .redact),
+        "fullname": (.name, .redact),
+        "surname": (.name, .redact),
+        "forename": (.name, .redact),
+        "givenname": (.name, .redact),
+        "familyname": (.name, .redact),
+        "given": (.name, .redact),
+        "family": (.name, .redact),
+        // Third parties named on the record. Safe Harbor A covers relatives and employers as well
+        // as the patient.
+        "guarantorname": (.name, .redact),
+        "contactname": (.name, .redact),
+        "emergencycontact": (.name, .redact),
+        "emergencycontactname": (.name, .redact),
+        "guardianname": (.name, .redact),
+        "spousename": (.name, .redact),
+        "nextofkin": (.name, .redact),
+        "nextofkinname": (.name, .redact),
+        // Every phone shape outside North America is invisible to the free-text detector, which
+        // knows the region it was built for. `090-1234-5678` is an ordinary Japanese mobile and
+        // read as a plain number. The header says otherwise.
+        //
+        // `tel` and `cell` are the two loosest names here and both are kept. `tel` is what FHIR and
+        // vCard call the field, and a whole-name match means a lab export's `cell count` column
+        // normalises to `cellcount` and is untouched. A column named exactly `cell` in a plate map
+        // loses one word, which is the trade this table already makes everywhere.
+        "phone": (.phone, .redact),
+        "phonenumber": (.phone, .redact),
+        "phoneno": (.phone, .redact),
+        "telephone": (.phone, .redact),
+        "telephonenumber": (.phone, .redact),
+        "tel": (.phone, .redact),
+        "mobile": (.phone, .redact),
+        "mobilephone": (.phone, .redact),
+        "mobilenumber": (.phone, .redact),
+        "cell": (.phone, .redact),
+        "cellphone": (.phone, .redact),
+        "homephone": (.phone, .redact),
+        "workphone": (.phone, .redact),
+        "contactphone": (.phone, .redact),
+        "primaryphone": (.phone, .redact),
         // Safe Harbor B covers subdivisions SMALLER than a state, so `state` is deliberately not
         // here — redacting it removes something the rule lets the reader keep.
         "address": (.address, .redact),

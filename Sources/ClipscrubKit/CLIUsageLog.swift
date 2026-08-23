@@ -84,9 +84,9 @@ public enum CLIUsageLog {
     }
 
     /// What one adoption pass did, per file. `failed` is a copy that threw. `alreadyPresent` is a
-    /// file this container already had, which is not an error and is not nothing either: the older
-    /// copy stays readable only from the old path, so a caller that reports neither leaves the user
-    /// looking at rules they did not write.
+    /// file this container already had whose older copy says something DIFFERENT, so the caller can
+    /// say which one this run read. Matching copies are left out: after a successful pass every file
+    /// matches, and reporting those turns the normal state into a warning on every single run.
     public struct ContainerAdoption: Sendable {
         public let failed: [String]
         public let alreadyPresent: [String]
@@ -111,7 +111,7 @@ public enum CLIUsageLog {
             let destination = current.appendingPathComponent(name)
             guard manager.fileExists(atPath: source.path) else { continue }
             guard !manager.fileExists(atPath: destination.path) else {
-                alreadyPresent.append(name)
+                if !sameContents(source, destination) { alreadyPresent.append(name) }
                 continue
             }
             do {
@@ -122,6 +122,15 @@ public enum CLIUsageLog {
             }
         }
         return ContainerAdoption(failed: failed, alreadyPresent: alreadyPresent)
+    }
+
+    /// Unreadable counts as different. A file this process cannot open is one it cannot vouch for,
+    /// and saying so costs a line of output while staying quiet hides a rule set that may not match.
+    private static func sameContents(_ one: URL, _ other: URL) -> Bool {
+        guard let left = try? Data(contentsOf: one), let right = try? Data(contentsOf: other) else {
+            return false
+        }
+        return left == right
     }
 
     // MARK: Config

@@ -114,7 +114,13 @@ public struct NameEntityDetector: EntityDetector {
 
     public func detect(in input: DetectionInput) async throws -> [DetectedEntity] {
         guard case let .text(text) = input, !text.isEmpty else { return [] }
-        var results = tagNames(tagString: text, sourceString: text)
+        // One tagger for every pass below, instead of one per pass and one per line. Building an
+        // `NLTagger` loads the name model; re-assigning `.string` does not. On a 200-line page that
+        // was 202 constructions, and this detector is where the text stage spends most of its time.
+        // Safe because the passes run in order on one input: nothing here is concurrent, and the
+        // tagger holds no state across a `.string` assignment.
+        let tagger = NLTagger(tagSchemes: [.nameType])
+        var results = tagNames(tagString: text, sourceString: text, using: tagger)
 
         // NLTagger's name model leans on capitalization, so ALL-CAPS ("JANICE") and lowercase names
         // are missed. Re-run on a length-preserving Title-Cased copy and map the spans back.
@@ -123,10 +129,10 @@ public struct NameEntityDetector: EntityDetector {
         // name-instability the user hit lived in the LLM tier, which the DetectionEngine gate trims.
         let normalized = Self.titleCased(text)
         if normalized != text {
-            Self.merge(tagNames(tagString: normalized, sourceString: text), into: &results)
+            Self.merge(tagNames(tagString: normalized, sourceString: text, using: tagger), into: &results)
         }
 
-        Self.merge(carriedLineNames(in: text), into: &results)
+        Self.merge(carriedLineNames(in: text, using: tagger), into: &results)
         return Self.dropNamesThatAreNotNames(results, in: text)
     }
 
@@ -261,7 +267,7 @@ public struct NameEntityDetector: EntityDetector {
     /// spreadsheet column — tags as nothing at all: "Dee Okonkwo" alone is missed where the same
     /// name in a sentence is found. Each line is re-tagged inside a carrier sentence and the hits
     /// are mapped back. Any sentence does the job, so the wording is not tuned to what is scanned.
-    private func carriedLineNames(in text: String) -> [DetectedEntity] {
+    private func carriedLineNames(in text: String, using tagger: NLTagger) -> [DetectedEntity] {
         var results: [DetectedEntity] = []
         var lineStart = text.startIndex
         while true {
@@ -271,11 +277,14 @@ public struct NameEntityDetector: EntityDetector {
             // useless sentence.
             let lineEnd = text[lineStart...].firstIndex(where: \.isNewline) ?? text.endIndex
             let line = text[lineStart..<lineEnd]
-            if !line.isEmpty {
+            // The guard below keeps only a span of two or more words, and a line of one word cannot
+            // produce one. Tagging it anyway is the commonest wasted pass on a table or a form,
+            // where most cells hold a single token.
+            if !line.isEmpty, Self.hasTwoWords(line) {
                 let carried = Self.carrierPrefix + line + Self.carrierSuffix
                 let lineLower = carried.index(carried.startIndex, offsetBy: Self.carrierPrefix.count)
                 let lineUpper = carried.index(lineLower, offsetBy: line.count)
-                for (type, range) in Self.taggedRanges(in: carried)
+                for (type, range) in Self.taggedRanges(in: carried, using: tagger)
                 where type == .name && range.lowerBound >= lineLower && range.upperBound <= lineUpper {
                     // One token inside a sentence we invented is the weakest evidence there is — a
                     // day label reads as a name that way — and a standalone given name is already
@@ -298,11 +307,28 @@ public struct NameEntityDetector: EntityDetector {
     private static let carrierPrefix = "I spoke with "
     private static let carrierSuffix = " yesterday."
 
+    /// True when the line holds two or more runs of non-whitespace. Stops at the second one rather
+    /// than splitting, because this runs on every line of every page.
+    private static func hasTwoWords(_ line: Substring) -> Bool {
+        var words = 0
+        var inWord = false
+        for character in line {
+            if character.isWhitespace {
+                inWord = false
+            } else if !inWord {
+                inWord = true
+                words += 1
+                if words == 2 { return true }
+            }
+        }
+        return false
+    }
+
     /// Tag names in `tagString`, but emit ranges/values against `sourceString` (same length, 1:1
     /// characters), so a normalized copy's hits map back to the original text.
-    private func tagNames(tagString: String, sourceString: String) -> [DetectedEntity] {
+    private func tagNames(tagString: String, sourceString: String, using tagger: NLTagger) -> [DetectedEntity] {
         var results: [DetectedEntity] = []
-        for (type, range) in Self.taggedRanges(in: tagString) {
+        for (type, range) in Self.taggedRanges(in: tagString, using: tagger) {
             let lower = tagString.distance(from: tagString.startIndex, to: range.lowerBound)
             let upper = tagString.distance(from: tagString.startIndex, to: range.upperBound)
             guard let sourceLower = sourceString.index(sourceString.startIndex, offsetBy: lower, limitedBy: sourceString.endIndex),
@@ -316,8 +342,10 @@ public struct NameEntityDetector: EntityDetector {
         return results
     }
 
-    private static func taggedRanges(in text: String) -> [(EntityType, Range<String.Index>)] {
-        let tagger = NLTagger(tagSchemes: [.nameType])
+    /// The tagger is passed in, not built here. Every caller runs this in a loop, so building one
+    /// per call is what made this the slowest layer in the text stage.
+    private static func taggedRanges(in text: String, using tagger: NLTagger)
+        -> [(EntityType, Range<String.Index>)] {
         tagger.string = text
         var found: [(EntityType, Range<String.Index>)] = []
         tagger.enumerateTags(in: text.startIndex..<text.endIndex, unit: .word, scheme: .nameType,

@@ -115,6 +115,13 @@
       "caseInsensitive": true
     },
     {
+      "type": "encounter",
+      "name": "Encounter / visit / CSN number, next to its label (no two hospital systems number a visit alike, so the label is the only signal; a bare date after the label is a date, not a number)",
+      "pattern": "\\b(?:encounters?|visits?|csn|contact\\s?serial|admissions?|episodes?)\\s?(?:id|ident(?:ifier)?|number|num|no\\.?|#)?[\"']?\\s{0,3}[:=#]?\\s{0,3}[\"']?(?![0-9]{1,4}[-/][0-9]{1,2}[-/][0-9]{1,4}\\b)(?=[A-Za-z0-9-]*[0-9])[A-Za-z0-9][A-Za-z0-9-]{4,24}\\b",
+      "confidence": 0.85,
+      "caseInsensitive": true
+    },
+    {
       "type": "cpt",
       "name": "CPT / HCPCS procedure code, next to its label (flag, never removed by default)",
       "pattern": "\\b(?:cpt|hcpcs|procedure|proc\\.?|service)\\s?(?:code)?[\"']?\\s?[:=#]?\\s?[\"']?\\d{5}\\b",
