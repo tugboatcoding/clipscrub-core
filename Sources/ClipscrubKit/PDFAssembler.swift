@@ -138,6 +138,7 @@ public enum PDFAssembler {
     static func withoutDocumentInfo(_ pdf: Data) -> Data {
         var bytes = [UInt8](pdf)
         let open = UInt8(ascii: "("), close = UInt8(ascii: ")"), escape = UInt8(ascii: "\\")
+        let whitespace: Set<UInt8> = [0, 9, 10, 12, 13, 32]
 
         for key in ["/Producer", "/CreationDate", "/ModDate"] {
             let needle = Array(key.utf8)
@@ -151,7 +152,7 @@ public enum PDFAssembler {
 
                 // The value follows the key. Anything other than a string literal is left alone.
                 var start = searchStart
-                while start < bytes.count, bytes[start] == UInt8(ascii: " ") { start += 1 }
+                while start < bytes.count, whitespace.contains(bytes[start]) { start += 1 }
                 guard start < bytes.count, bytes[start] == open else { continue }
 
                 // PDF string literals nest parentheses and escape with a backslash, so this counts

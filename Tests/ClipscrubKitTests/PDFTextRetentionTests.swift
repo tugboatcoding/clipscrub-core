@@ -273,6 +273,17 @@ final class PDFTextRetentionTests: XCTestCase {
                      "a later document-info timestamp survived")
     }
 
+    /// Any PDF whitespace can separate a dictionary key from its string value.
+    func testBlankingAcceptsPDFWhitespaceBeforeAnInfoValue() throws {
+        for separator in ["\u{0}", "\t", "\n", "\u{c}", "\r", " "] {
+            let source = Data("<< /CreationDate\(separator)(D:20260828131343Z) >>".utf8)
+            let text = String(decoding: PDFAssembler.withoutDocumentInfo(source), as: UTF8.self)
+
+            XCTAssertNil(text.range(of: #"D:\d{8}"#, options: .regularExpression),
+                         "PDF whitespace preserved the document-info timestamp")
+        }
+    }
+
     /// A value that is not a string literal is left alone rather than guessed at.
     func testANonStringInfoValueIsLeftUntouched() throws {
         let source = Data("<< /Producer 4 0 R /ModDate (D:20260822151601Z) >>".utf8)
