@@ -9,10 +9,8 @@
 # The archive is the attested subject rather than the bare binary, because the binary alone does not
 # run — see the staging step below.
 #
-# The ClipScrub app disk image is a different artifact and gets a different answer. The app around
-# this engine is closed source, so the disk image is built and Developer ID signed on a maintainer
-# machine and can never be built here. It carries a published SHA-256 in CHECKSUMS.txt instead,
-# which the release notes repeat as it stood when the tag was cut.
+# The ClipScrub app disk image is a separate artifact. It carries a published SHA-256 in
+# CHECKSUMS.txt, which the release notes repeat as it stood when the tag was cut.
 name: release
 
 on:
@@ -116,7 +114,7 @@ jobs:
             printf '**The `clipscrub` CLI attached below** was built in this run, from this repo, at `%s`. It carries a build provenance attestation, so you can check it against the source yourself:\n\n' "$TAG"
             printf '```\ngh release download %s --repo %s --pattern clipscrub-macos-universal.tar.gz\ngh attestation verify clipscrub-macos-universal.tar.gz --repo %s\ntar -xzf clipscrub-macos-universal.tar.gz\n```\n\n' "$TAG" "$GITHUB_REPOSITORY" "$GITHUB_REPOSITORY"
             printf 'Keep the extracted `ClipscrubKit_ClipscrubKit.bundle` beside the binary. It holds the ruleset and name list, and the tool cannot start without it.\n\n'
-            printf '**The ClipScrub app disk image** from clipscrub.com holds a closed-source app, built and Developer ID signed on a maintainer machine, so it cannot be attested here. It carries a published checksum instead:\n\n'
+            printf '**The ClipScrub app disk image** from clipscrub.com carries a published checksum:\n\n'
             printf '```\nshasum -a 256 ClipScrub.dmg\n```\n\n'
             # Scoped to the moment this tag was cut, NEVER to "the current download". The bucket
             # keeps one object and overwrites it, so on an older release this line would otherwise

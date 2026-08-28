@@ -614,6 +614,119 @@ final class DetectorTests: XCTestCase {
         }
     }
 
+    func testLabelledSSNIsFoundWithoutTheDashes() async throws {
+        // The shape rule needs `NNN-NN-NNNN`. A form that prints the label and then nine bare
+        // digits was unreachable in prose — it only landed through a CSV header or a JSON key, so
+        // the same value leaked from a screenshot and was caught in the export beside it.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        for text in ["Social Security Number: 482910385",
+                     "SSN: 482910385",
+                     "SSN 402118853",
+                     "Social security no. 482910385",
+                     "\"ssn\": \"482910385\""] {
+            let found = try await detector.detect(in: .text(text))
+            XCTAssertTrue(found.contains { $0.type == .ssn }, "expected an SSN in '\(text)'")
+        }
+    }
+
+    func testLabelledSSNRuleDoesNotClaimAnyNineDigitRun() async throws {
+        // The label is the whole signal. Without that bound an account number, an order total in
+        // cents and a phone number written without punctuation all read as social security numbers.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        for text in ["Account 482910385", "Reference 482910385", "Total 482910385"] {
+            let found = try await detector.detect(in: .text(text))
+            XCTAssertFalse(found.contains { $0.type == .ssn }, "'\(text)' is not a social security number")
+        }
+    }
+
+    func testLabelledSSNSpanIsTheNumberAloneSoJSONStaysParseable() async throws {
+        // Every other labelled rule puts the label inside the span, which is right for prose. In a
+        // JSON document it deletes the key and its punctuation, and the redacted file no longer
+        // parses — `AttributedRedactor`'s same-format export inherits that. A lookbehind keeps the
+        // label out of the span.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        let json = "{\"ssn\": \"482910385\"}"
+        let found = try await detector.detect(in: .text(json))
+        let hit = try XCTUnwrap(found.first { $0.type == .ssn })
+        XCTAssertEqual(hit.value, "482910385")
+
+        let redacted = TextRedactor().redact(json, entities: found).redactedText
+        XCTAssertNotNil(redacted.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) },
+                        "the redacted document no longer parses: \(redacted)")
+    }
+
+    func testReferenceNumbersAreFoundNextToTheirLabel() async throws {
+        // No two systems number a receipt, a ticket or a case alike, so the label is the only
+        // signal — the same argument the member and encounter rules already run on. What is
+        // different here is that the label is not enumerated: any word before `number`, `ID`,
+        // `no.` or `#` counts.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        for text in ["Receipt number: 4491",
+                     "ID: 4491",
+                     "Ticket #48812",
+                     "Order #10042",
+                     "Case No. AB-9931",
+                     "Session ID: a91f-4c2e-88b0",
+                     "Ref: PO-88231",
+                     "\"id\": \"ENC-2026-0311-004\""] {
+            let found = try await detector.detect(in: .text(text))
+            XCTAssertTrue(found.contains { $0.type == .other("reference") },
+                          "expected a reference number in '\(text)'")
+        }
+    }
+
+    func testReferenceNumbersAreFlaggedRatherThanRemoved() async throws {
+        // A ticket number is what the document is about as often as it is a way to find someone.
+        // Removing one silently costs the reader the thing they were sharing, so the rule points
+        // at it and leaves it in. `references` is off by default for the same reason, and that is
+        // the half the app reads — see `RedactionCategory.offByDefault`.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        let text = "Ticket #48812 is still open."
+        let found = try await detector.detect(in: .text(text))
+        let hit = try XCTUnwrap(found.first { $0.type == .other("reference") })
+        XCTAssertEqual(hit.disposition, .flag)
+        XCTAssertFalse(hit.isEnabled)
+        XCTAssertEqual(hit.value, "48812", "the label stays in the document; only the number is the span")
+        XCTAssertTrue(TextRedactor().redact(text, entities: found).redactedText.contains("48812"))
+    }
+
+    func testReferenceRuleLeavesBuildNumbersAndDeniedReasonCodesAlone() async throws {
+        // Both are `ignore` items in the detection gate: a software version and a denial reason
+        // code identify nobody, and marking either is a scored false positive. An explicit `:`,
+        // `=`, `.` or `#` between the label and the value is what keeps them out.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        for text in ["Reported on build 7.4.2.", "Denied with CO-151.", "Retired in 1998.",
+                     "See Figure 3.1 above.", "Version number: 2"] {
+            let found = try await detector.detect(in: .text(text))
+            XCTAssertFalse(found.contains { $0.type == .other("reference") },
+                           "'\(text)' holds no reference number")
+        }
+    }
+
+    func testHandlesAreFound() async throws {
+        // A handle names a person as directly as an email address does, and nothing in the engine
+        // read one — the email rule wants a TLD after the `@`, so `@cursor` could never match it.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        let found = try await detector.detect(in: .text("ping @cursor and @sarah_chen about this"))
+        let handles = Set(found.filter { $0.type == .other("handle") }.map(\.value))
+        XCTAssertEqual(handles, ["@cursor", "@sarah_chen"])
+    }
+
+    func testHandleRuleDoesNotFireOnEmailsPackageScopesOrDomains() async throws {
+        // Every guard here is positional rather than a list of words, so none of them goes stale.
+        // A character before the `@` means an email or a path; a `/` or a dotted TLD after it
+        // means a package scope or a domain.
+        let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
+        for text in ["tobias.renner@example.org",
+                     "import @acme/shared-dao",
+                     "hosted at @example.com",
+                     "https://github.com/@someone"] {
+            let found = try await detector.detect(in: .text(text))
+            XCTAssertFalse(found.contains { $0.type == .other("handle") },
+                           "'\(text)' holds no handle")
+        }
+    }
+
     func testEmptyInputYieldsNoDetections() async throws {
         let detector = try RegexRulesetDetector(ruleset: Ruleset.bundled())
         let empty = DetectionInput.text("")

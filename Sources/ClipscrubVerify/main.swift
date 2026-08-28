@@ -138,6 +138,32 @@ func run() async throws {
     check(!kept.redactedText.contains("402-11-8853"), "the SSN does not")
     check(kept.flagged.contains { $0.type == .other("cpt") }, "the result says what it kept")
 
+    print("labelled SSN, reference numbers and @-handles")
+    // Three patterns added together, and each is checked here as well as in XCTest because one
+    // invalid pattern throws out of RegexRulesetDetector.init and takes the WHOLE regex layer
+    // with it. This harness runs under Command Line Tools, so it is the cheap place to find that.
+    let labelledSSN = try await regex.detect(in: .text("Social Security Number: 482910385"))
+    check(labelledSSN.contains { $0.type == .ssn && $0.value == "482910385" },
+          "a labelled SSN is found without the dashes, and the label is not part of the span")
+    let notAnSSN = try await regex.detect(in: .text("Account 482910385"))
+    check(!notAnSSN.contains { $0.type == .ssn }, "a bare nine-digit run is not an SSN")
+
+    let refSample = "Receipt number: 4491, Ticket #48812, built on 7.4.2, denial CO-151."
+    let refs = try await regex.detect(in: .text(refSample))
+    let references = refs.filter { $0.type == .other("reference") }
+    check(Set(references.map(\.value)) == ["4491", "48812"], "finds both reference numbers, values only")
+    check(references.allSatisfy { $0.disposition == .flag }, "reference numbers are flagged, not removed")
+    check(references.allSatisfy { !$0.isEnabled }, "so redaction skips them until the reader ticks one")
+    let refKept = TextRedactor().redact(refSample, entities: refs)
+    check(refKept.redactedText.contains("48812"), "the ticket number survives redaction")
+    check(refKept.redactedText.contains("7.4.2"), "a build number is never marked")
+    check(refKept.redactedText.contains("CO-151"), "nor is a denial reason code")
+
+    let handleSample = "ping @cursor, mail tobias.renner@example.org, import @acme/shared-dao"
+    let handles = try await regex.detect(in: .text(handleSample))
+    check(handles.filter { $0.type == .other("handle") }.map(\.value) == ["@cursor"],
+          "the handle is found and neither the email nor the package scope is")
+
     print("quasi-identifiers (age / sex, case-insensitive)")
     let quasi = try await regex.detect(in: .text("Patient AGE:47, sex female; also 82 y/o elsewhere."))
     let quasiTypes = Set(quasi.map(\.type))

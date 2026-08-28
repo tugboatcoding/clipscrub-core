@@ -1,9 +1,7 @@
 # The published checksum for the ClipScrub app disk image.
 #
-# The app around this engine is closed source, so its disk image is built and Developer ID signed
-# on a maintainer machine rather than in CI here. That means it cannot carry a build provenance
-# attestation the way the `clipscrub` CLI does. This file is the answer instead: download the disk
-# image from clipscrub.com, hash it, and check it against the line below.
+# The disk image has a published SHA-256. Download it from clipscrub.com, hash it, and check it
+# against the line below.
 #
 #     shasum -a 256 ClipScrub.dmg
 #
@@ -15,4 +13,4 @@
 # at this commit, which is not necessarily the one you have. A release repeats the line as it stood
 # when that release was cut. clipscrub.com always shows the current one.
 
-ClipScrub.dmg  version=0.5.0  build=14  sha256=a4da4ad443c27aaa265fa04255d5011ead2e3a1d83125621fc38bafd098b57bf
+ClipScrub.dmg  version=0.5.0  build=15  sha256=f07ef3db293731b442426d2607b2523428fd1f4d28ffbe098a60ebf17b5db4b1

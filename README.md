@@ -61,6 +61,15 @@ clipscrub --mode pseudonymise --report < notes.txt
   default. Where that model is unavailable it is skipped, and redaction never
   depends on it.
 
+### Block a typed AI prompt before Claude Code receives it
+
+[`Examples/ai-prompt-gate`](Examples/ai-prompt-gate) holds a `UserPromptSubmit` hook for
+Claude Code. It reads the submitted prompt from standard input and blocks any ClipScrub finding.
+When redaction changes the prompt, the hook copies the sanitized text for one reviewed paste.
+It scans typed prompt text only. Attachments and files a model reads later need separate controls.
+This is an experimental macOS example. It can miss sensitive content and does not provide a
+proof that a prompt is safe to share.
+
 ## How detection works
 
 The deterministic rules are the floor. The optional on-device model adds a pass on
@@ -130,10 +139,9 @@ The archive holds two things and they belong together. `ClipscrubKit_ClipscrubKi
 the ruleset and the name list, and the tool reads them from beside its own binary — move the binary
 out on its own and it stops before it redacts anything.
 
-The ClipScrub app is closed source, so its disk image is built and signed on a maintainer machine
-and cannot be attested here. It gets a published checksum instead. `CHECKSUMS.txt` at the tip of
-this repo carries the hash for the disk image live at the last publish, and each release repeats
-the hash that was live when that release was cut:
+The ClipScrub disk image has a published checksum. `CHECKSUMS.txt` at the tip of this repo carries
+the hash for the disk image live at the last publish. Each release repeats the hash that was live
+when that release was cut:
 
 ```bash
 shasum -a 256 ClipScrub.dmg

@@ -15,6 +15,7 @@ clipscrub — redact PHI/PII locally, on-device (no network).
 
 USAGE
   clipscrub [<file>] [--mode …] [--report]                 text/doc → stdout (redacted text)
+  clipscrub --check [<file>] [--no-llm]                    text → exit status only
   clipscrub --image <in.png|in.pdf> <out.png|out.pdf> […]  image/PDF: file → file (format from <out>)
   clipscrub --doc   <in.docx|in.rtf> <out>                 rich-text → same format, formatted
   clipscrub --deid  <in.dcm|in.edf> <out>                  DICOM/EDF header de-id
@@ -28,6 +29,7 @@ FLAGS
   --flatten-only    PDF out: pixels only, no searchable text (see below)
   --no-llm          skip the on-device Apple Intelligence tier (deterministic only); text and docs
   --no-user-rules   ignore saved custom patterns
+  --check           exit 20 when text has a finding, 0 when it has none; writes no output
   --report          print a JSON summary (per-type counts, no raw values) to stderr,
                     plus a line naming anything found and deliberately left in
   -h, --help        show this help
@@ -142,6 +144,7 @@ var doc = false
 var report = false
 var noLLM = false
 var noUserRules = false
+var check = false
 var flattenOnly = false
 var mode: OutputMode = .redact
 var positionals: [String] = []
@@ -157,6 +160,7 @@ while index < arguments.count {
     case "--doc": doc = true
     case "--no-llm": noLLM = true
     case "--no-user-rules": noUserRules = true
+    case "--check": check = true
     case "--flatten-only": flattenOnly = true
     case "--report": report = true
     case "--mode":
@@ -207,6 +211,7 @@ for name in adoption.alreadyPresent {
 
 do {
     if deid {
+        if check { die("--check supports text only") }
         guard positionals.count == 2 else { die("--deid needs <in.dcm|in.edf> <out>") }
         if mode != .redact { die("--deid blanks header fields; it has no --mode") }
         let inputURL = URL(fileURLWithPath: positionals[0])
@@ -224,6 +229,7 @@ do {
         for line in result.summary { stderr(line) }
         logCLIUsage(command: .deid, mode: mode, entities: [])
     } else if isImage {
+        if check { die("--check supports text only") }
         guard positionals.count == 2 else { die("--image needs <in.png|in.pdf> <out.png|out.pdf>") }
         // Pseudonyms on this path would need a token per box in the image AND in the text layer, and
         // only the GUI builds that map today. Plain-redacting while accepting the flag would report a
@@ -278,6 +284,7 @@ do {
         // count a code we deliberately left visible as one we removed.
         logCLIUsage(command: .image, mode: mode, entities: allRegions.filter(\.isEnabled))
     } else if doc {
+        if check { die("--check supports text only") }
         // Rich-text (rtf/doc/docx/html/odt) → redact the identifier spans, keep the formatting.
         guard positionals.count == 2 else { die("--doc needs <in> <out>") }
         let inputURL = URL(fileURLWithPath: positionals[0])
@@ -311,9 +318,12 @@ do {
             guard let stdin = String(data: data, encoding: .utf8) else { die("input is not UTF-8 text") }
             text = stdin
         }
-        let result = try await textPipeline(noLLM: noLLM, userRules: loadUserRules(skip: noUserRules)).run(
-            text: text, mode: mode, pseudonymiser: pseudonymiser(for: mode)
-        )
+        let pipeline = try textPipeline(noLLM: noLLM, userRules: loadUserRules(skip: noUserRules))
+        if check {
+            let findings = try await pipeline.detect(text: text)
+            exit(findings.isEmpty ? 0 : 20)
+        }
+        let result = try await pipeline.run(text: text, mode: mode, pseudonymiser: pseudonymiser(for: mode))
         FileHandle.standardOutput.write(Data(result.redactedText.utf8))
         emitReport(result.entities, flagged: result.flagged, enabled: report)
         logCLIUsage(command: .text, mode: mode, entities: result.entities)

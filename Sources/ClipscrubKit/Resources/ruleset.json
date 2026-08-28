@@ -143,6 +143,27 @@
       "confidence": 0.9,
       "caseInsensitive": true,
       "disposition": "flag"
+    },
+    {
+      "type": "ssn",
+      "name": "US Social Security Number, next to its label (the shape rule above needs the dashes; a labelled value does not)",
+      "pattern": "(?<=\\b(?:ssn|s\\.s\\.n\\.?|social[ \\t]?security(?:[ \\t]?(?:number|no\\.?|#|account))?)[\"']?[ \\t]{0,3}[:=#]?[ \\t]{0,3}[\"']?)[0-9]{3}-?[0-9]{2}-?[0-9]{4}\\b",
+      "confidence": 0.92,
+      "caseInsensitive": true
+    },
+    {
+      "type": "reference",
+      "name": "Reference / ticket number, next to its label (flag, never removed by default)",
+      "pattern": "(?:(?<=\\b(?:id|ident|identifier|number|num|no|nos|ref|reference)[\"']?[ \\t]{0,3}[:=#.][ \\t]{0,3}[\"']?)|(?<=\\b[A-Za-z][A-Za-z.\\-]{1,20}[ \\t]{0,3}#[ \\t]{0,3}))(?![0-9]{1,4}[-/][0-9]{1,2}[-/][0-9]{1,4}\\b)(?=[A-Za-z0-9-]*[0-9])[A-Za-z0-9][A-Za-z0-9-]{2,23}\\b",
+      "confidence": 0.7,
+      "caseInsensitive": true,
+      "disposition": "flag"
+    },
+    {
+      "type": "handle",
+      "name": "@-handle or mention",
+      "pattern": "(?<![A-Za-z0-9._%+\\-/])@(?![A-Za-z0-9_.\\-]*(?:/|\\.[A-Za-z]{2,}))[A-Za-z0-9_][A-Za-z0-9_.\\-]{1,29}\\b",
+      "confidence": 0.8
     }
   ]
 }
