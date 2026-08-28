@@ -254,6 +254,25 @@ final class PDFTextRetentionTests: XCTestCase {
         XCTAssertFalse(text.contains("26.3.1"), "the scan stopped at an escaped parenthesis")
     }
 
+    /// Quartz output can contain an earlier metadata object before the active document info.
+    /// Every matching string must be blanked because the bytes remain searchable after export.
+    func testBlankingRemovesEveryOccurrenceOfAnInfoValue() throws {
+        let source = Data("""
+        1 0 obj
+        << /CreationDate (D:20260822151601Z) >>
+        endobj
+        2 0 obj
+        << /CreationDate (D:20260828131343Z) >>
+        endobj
+        """.utf8)
+        let blanked = PDFAssembler.withoutDocumentInfo(source)
+        let text = String(decoding: blanked, as: UTF8.self)
+
+        XCTAssertEqual(blanked.count, source.count, "blanking moved the later object")
+        XCTAssertNil(text.range(of: #"D:\d{8}"#, options: .regularExpression),
+                     "a later document-info timestamp survived")
+    }
+
     /// A value that is not a string literal is left alone rather than guessed at.
     func testANonStringInfoValueIsLeftUntouched() throws {
         let source = Data("<< /Producer 4 0 R /ModDate (D:20260822151601Z) >>".utf8)

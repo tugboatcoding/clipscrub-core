@@ -142,29 +142,34 @@ public enum PDFAssembler {
         for key in ["/Producer", "/CreationDate", "/ModDate"] {
             let needle = Array(key.utf8)
             guard needle.count <= bytes.count else { continue }
-            guard let keyStart = (0...(bytes.count - needle.count)).first(where: {
-                Array(bytes[$0..<$0 + needle.count]) == needle
-            }) else { continue }
+            var searchStart = 0
+            while searchStart <= bytes.count - needle.count {
+                guard let keyStart = (searchStart...(bytes.count - needle.count)).first(where: {
+                    Array(bytes[$0..<$0 + needle.count]) == needle
+                }) else { break }
+                searchStart = keyStart + needle.count
 
-            // The value follows the key. Anything other than a string literal is left alone.
-            var start = keyStart + needle.count
-            while start < bytes.count, bytes[start] == UInt8(ascii: " ") { start += 1 }
-            guard start < bytes.count, bytes[start] == open else { continue }
+                // The value follows the key. Anything other than a string literal is left alone.
+                var start = searchStart
+                while start < bytes.count, bytes[start] == UInt8(ascii: " ") { start += 1 }
+                guard start < bytes.count, bytes[start] == open else { continue }
 
-            // PDF string literals nest parentheses and escape with a backslash, so this counts
-            // depth rather than stopping at the first `)`.
-            var depth = 0, end = start
-            while end < bytes.count {
-                if bytes[end] == escape { end += 2; continue }
-                if bytes[end] == open { depth += 1 }
-                if bytes[end] == close {
-                    depth -= 1
-                    if depth == 0 { break }
+                // PDF string literals nest parentheses and escape with a backslash, so this counts
+                // depth rather than stopping at the first `)`.
+                var depth = 0, end = start
+                while end < bytes.count {
+                    if bytes[end] == escape { end += 2; continue }
+                    if bytes[end] == open { depth += 1 }
+                    if bytes[end] == close {
+                        depth -= 1
+                        if depth == 0 { break }
+                    }
+                    end += 1
                 }
-                end += 1
+                guard end < bytes.count, depth == 0, end > start + 1 else { continue }
+                for i in (start + 1)..<end { bytes[i] = UInt8(ascii: " ") }
+                searchStart = end + 1
             }
-            guard end < bytes.count, depth == 0, end > start + 1 else { continue }
-            for i in (start + 1)..<end { bytes[i] = UInt8(ascii: " ") }
         }
         return Data(bytes)
     }
