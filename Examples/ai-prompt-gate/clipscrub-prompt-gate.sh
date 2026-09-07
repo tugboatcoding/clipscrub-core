@@ -13,7 +13,8 @@ block() {
 
 prompt="$(/usr/bin/plutil -extract prompt raw -o - - 2>/dev/null)" || block
 
-if [ -n "${CLIPSCRUB_BIN:-}" ] && [ -x "$CLIPSCRUB_BIN" ]; then
+if [ -n "${CLIPSCRUB_BIN:-}" ]; then
+  [ -x "$CLIPSCRUB_BIN" ] || block
   clipscrub_bin="$CLIPSCRUB_BIN"
 elif clipscrub_path="$(command -v clipscrub 2>/dev/null)" && [ -n "$clipscrub_path" ]; then
   clipscrub_bin="$clipscrub_path"

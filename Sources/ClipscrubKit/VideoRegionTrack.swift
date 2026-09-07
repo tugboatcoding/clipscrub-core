@@ -194,6 +194,25 @@ public struct VideoRegionTrack: Sendable {
     /// manual boxes plus that frame's own. Sample times are left alone — they name frames of the clip
     /// being redacted, and redaction runs before any trim so those frames are still the source's.
     /// An empty track still redacts the manual boxes, via a plain one-sample track.
+    /// The same track with every region's `isEnabled` set from `allows`.
+    ///
+    /// A region stays in the track either way, so callers can report everything the scan found.
+    /// Only whether it is covered changes, which is what `isEnabled` means on a still image too.
+    /// Every sample is mapped, because changing one would leave the rest of the clip unchanged.
+    public func applyingPolicy(_ allows: (EntityType) -> Bool) -> VideoRegionTrack {
+        VideoRegionTrack(
+            samples: samples.map { sample in
+                Sample(time: sample.time, regions: sample.regions.map { region in
+                    var policed = region
+                    policed.isEnabled = allows(region.type)
+                    return policed
+                })
+            },
+            verifiedFrames: verifiedFrames,
+            frameDuration: frameDuration
+        )
+    }
+
     public func forExport(manual: [DetectedEntity]) -> VideoRegionTrack {
         forExport { _ in manual }
     }
