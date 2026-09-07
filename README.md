@@ -9,6 +9,22 @@ behind [ClipScrub](https://clipscrub.com), a native macOS app. They are open
 source so you can read exactly how the redaction works and check the privacy
 claim for yourself.
 
+## Guides and examples
+
+The following guides cover the ClipScrub app and CLI. Each guide explains the relevant workflow and its limitations.
+
+| Task | Guide |
+|---|---|
+| Redact a Word document | [Redact Word documents on Mac](https://clipscrub.com/redact-word-documents-mac/) |
+| Remove identifiers from data files | [Redact CSV, JSON and XML](https://clipscrub.com/redact-csv-json-xml-mac/) |
+| Redact a PDF | [Redact PDFs on Mac](https://clipscrub.com/redact-pdf-mac/) |
+| Check PDF metadata | [Remove PDF metadata on Mac](https://clipscrub.com/remove-pdf-metadata-mac/) |
+| Hide text in a screenshot | [Blur screenshot text on Mac](https://clipscrub.com/blur-text-screenshot-mac/) |
+| Check a typed prompt before Claude Code receives it | [Use the ClipScrub prompt gate](https://clipscrub.com/guides/stop-pii-before-claude-code/) |
+
+Review every result before sharing. Detection can miss sensitive information.
+
+
 ## Why this is open
 
 ClipScrub does all of its work locally. That is easy to say and hard to trust,
