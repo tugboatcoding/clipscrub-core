@@ -22,7 +22,7 @@
     {
       "type": "mrn",
       "name": "Medical record number (labelled)",
-      "pattern": "\\b(?i:MRN)[:#]?\\s?[A-Z0-9]{5,12}\\b",
+      "pattern": "\\b(?i:MRN(?:[ \\t]{1,3}(?:number|no\\.?|#))?|medical[ \\t]{1,3}record[ \\t]{1,3}(?:number|no\\.?|#))[:#]?(?:[ \\t]{0,4}(?:\\r?\\n[ \\t]{0,4})?|\\s?)(?=[A-Z0-9]*[0-9])[A-Z0-9]{5,12}\\b|\\b(?i:MRN)[:#]?\\s?[A-Z0-9]{5,12}\\b",
       "confidence": 0.85
     },
     {
@@ -41,7 +41,7 @@
     {
       "type": "license",
       "name": "Driver's license number (labelled)",
-      "pattern": "\\b(?:DLN|DL|Driver'?s?\\s?Licen[sc]e)(?:\\s?(?:no|number|#))?[:#]?\\s?(?=[A-Z0-9-]*\\d)[A-Z0-9-]{5,15}\\b",
+      "pattern": "\\b(?:DLN|DL|(?:Driver['’]?s?|Driving)\\s?Licen[sc]e)(?:\\s?(?:no\\.?|number|#))?[:#]?(?:[ \\t]{0,4}(?:\\r?\\n[ \\t]{0,4})?|\\s?)(?=[A-Z0-9-]*\\d)[A-Z0-9-]{5,15}\\b",
       "confidence": 0.8,
       "caseInsensitive": true
     },
