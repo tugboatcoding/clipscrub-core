@@ -28,7 +28,7 @@ FLAGS
   --mode <m>        redact (default) | pseudonymise (stable keyed tokens); text and docs only
   --flatten-only    PDF out: pixels only, no searchable text (see below)
   --no-llm          skip the on-device Apple Intelligence tier (deterministic only); text and docs
-  --no-user-rules   ignore saved custom patterns
+  --no-user-rules   ignore saved custom patterns (including imported Infrastructure rules)
   --check           exit 20 when text has a finding, 0 when it has none; writes no output
   --report          print a JSON summary (per-type counts, no raw values) to stderr,
                     plus a line naming anything found and deliberately left in
@@ -46,6 +46,11 @@ byte-stable, reproducible output in scripts. When the model is unavailable (olde
 macOS, Apple Intelligence off) the tier is skipped automatically. Images and PDFs
 run the deterministic layers only. Output goes to stdout only; nothing leaves your
 machine.
+
+For related service logs, import Infrastructure in ClipScrub Settings > Rules,
+then use --no-llm --mode pseudonymise for each file. The Rules footer confirms
+whether the CLI can read those rules. Pseudonymise gives matching identifiers
+the same replacements across related files.
 
 A PDF that arrives with a text layer keeps one. Every page is still rasterised, so
 nothing sits under a redaction box, and the words that were not removed are written
@@ -119,9 +124,8 @@ func textPipeline(noLLM: Bool, userRules: [UserRule]) throws -> RedactionPipelin
 /// expecting those matches to go, and a pipe that silently keeps them looks exactly like a pipe that
 /// removed them.
 ///
-/// The app can only write to this directory on a signed build. On an unsigned local build it falls
-/// back to its own container, which is not this path, so an empty list here is a real answer and not
-/// something to warn about.
+/// The CLI reads only rules saved in its shared rule directory. An empty list means there are
+/// no saved rules for this CLI to apply.
 func loadUserRules(skip: Bool) -> [UserRule] {
     guard !skip else { return [] }
     let rules = UserRuleStore.load(in: UserRuleStore.directForCLI())

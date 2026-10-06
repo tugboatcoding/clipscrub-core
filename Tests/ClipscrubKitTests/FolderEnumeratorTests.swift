@@ -42,6 +42,20 @@ final class FolderEnumeratorTests: FolderEnumeratorTestCase {
         XCTAssertNil(scan.error)
     }
 
+    func testWalkAcceptsRelatedServiceLogs() throws {
+        try write("gateway.log", bytes: "service=checkout-api host=api.internal status=503")
+        try write("nested/worker.LOG", bytes: "service=checkout-api host=api.internal status=200")
+        try write("source.swift")
+        let scan = FolderEnumerator.scan(root)
+        XCTAssertEqual(names(scan.accepted), ["gateway.log", "worker.LOG"])
+        XCTAssertEqual(names(scan.skipped.map(\.url)), ["source.swift"])
+        guard let decoded = DocumentDecoder.decode(root.appendingPathComponent("gateway.log")),
+              case .text(let text) = decoded else {
+            return XCTFail("accepted log must decode as text")
+        }
+        XCTAssertEqual(text, "service=checkout-api host=api.internal status=503")
+    }
+
     func testHiddenFilesAndPackagesAreNeitherAcceptedNorReported() throws {
         try write("keep.png")
         try write(".hidden.png")

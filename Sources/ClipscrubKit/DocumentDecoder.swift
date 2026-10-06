@@ -40,9 +40,9 @@ public enum DocumentDecoder {
     ///
     /// `decode`'s last branch is more generous than this: it reads any file that turns out to be
     /// valid UTF-8. That is right for a file somebody picked by hand and wrong for a sweep of a
-    /// folder, which would otherwise open every `.swift` source file and build log it walked past.
+    /// folder, which would otherwise open every `.swift` source file it walked past.
     public static let plainTextExtensions: Set<String> = [
-        "txt", "text", "md", "markdown", "json", "ndjson", "xml", "csv", "tsv", "hl7", "yaml", "yml",
+        "txt", "text", "log", "md", "markdown", "json", "ndjson", "xml", "csv", "tsv", "hl7", "yaml", "yml",
     ]
 
     /// Whether a folder sweep should hand this file to `decode`.

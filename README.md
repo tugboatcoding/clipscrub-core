@@ -77,6 +77,34 @@ clipscrub --mode pseudonymise --report < notes.txt
   default. Where that model is unavailable it is skipped, and redaction never
   depends on it.
 
+### Share related service logs
+
+In the ClipScrub app, open **Settings ▸ Rules ▸ Starter Presets ▸ Infrastructure**.
+Import the preset again after updating to pick up its latest rules.
+Keep **Redaction ▸ Your custom rules** enabled.
+Choose **Pseudonymise** in the workspace, then drop a folder containing the related `.log` files.
+ClipScrub writes copies into a **Redacted** folder inside the source folder. Check the results before sharing them.
+
+Infrastructure detects bare hosts ending in `.internal`, `.local` or `.corp`.
+It also finds values after `service`, `service_name`, `service.name`, `host` and `hostname` labels.
+These labels accept `=` or `:` separators, including quoted JSON keys and values.
+The value must use DNS-style labels with letters, digits and hyphens.
+Labels and separators remain in the output. Ordinary unlabelled service names need a custom rule.
+
+The Rules footer states whether the CLI can read the saved rules in your app build.
+When it says the rules apply in both tools, run each file through the CLI:
+
+```bash
+mkdir -p shared-logs
+clipscrub --no-llm --mode pseudonymise --report gateway.log > shared-logs/gateway.log
+clipscrub --no-llm --mode pseudonymise --report worker.log > shared-logs/worker.log
+```
+
+Pseudonymise gives matching identifiers the same replacements across files and runs on this Mac.
+Keep the same rules enabled for each file. Status codes and durations remain readable unless another enabled rule matches them.
+If the CLI reports unstable pseudonyms, prepare the related files in one app session and check their replacements.
+When the Rules footer says the CLI cannot read your rules, prepare the files in ClipScrub.
+
 ### Block a typed AI prompt before Claude Code receives it
 
 [`Examples/ai-prompt-gate`](Examples/ai-prompt-gate) holds a `UserPromptSubmit` hook for
